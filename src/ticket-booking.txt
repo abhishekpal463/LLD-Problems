@@ -1,0 +1,280 @@
+1. An event/show has a fixed set of seats.
+2. User can view available seats.
+3. User can select one or more seats.
+4. Selected seats are temporarily held for 5 minutes.
+5. User must complete payment within the hold period.
+6. Successful payment confirms the booking.
+7. If payment isn't completed, the seats become available again.
+8. Two users must not be able to book the same seat.
+
+Entities:
+User
+Show
+Seat
+Booking
+Payment
+
+Show
+ |
+ └── Seats
+
+Booking
+ ├── User
+ ├── Show
+ └── Seats
+
+
+ enum SeatStatus {
+     AVAILABLE,
+     RESERVED,
+     BOOKED
+ }
+
+ class Seat {
+
+     private final String id;
+     private final String showId;
+     private final String seatNumber;
+     private final BigDecimal price;
+
+     private SeatStatus status;
+
+     public Seat(
+             String id,
+             String showId,
+             String seatNumber,
+             BigDecimal price) {
+
+         this.id = id;
+         this.showId = showId;
+         this.seatNumber = seatNumber;
+         this.price = price;
+         this.status = SeatStatus.AVAILABLE;
+     }
+
+     public boolean isAvailable() {
+         return status == SeatStatus.AVAILABLE;
+     }
+
+     public void reserve() {
+         if (!isAvailable()) {
+             throw new IllegalStateException(
+                     "Seat is not available");
+         }
+
+         status = SeatStatus.RESERVED;
+     }
+
+     public void book() {
+         if (status != SeatStatus.RESERVED) {
+             throw new IllegalStateException(
+                     "Seat is not reserved");
+         }
+
+         status = SeatStatus.BOOKED;
+     }
+
+     public void release() {
+         if (status == SeatStatus.RESERVED) {
+             status = SeatStatus.AVAILABLE;
+         }
+     }
+
+     public BigDecimal getPrice() {
+         return price;
+     }
+
+     public String getId() {
+         return id;
+     }
+ }
+
+ enum BookingStatus {
+     RESERVED,
+     CONFIRMED,
+     EXPIRED
+ }
+
+ class Booking {
+     private final String id;
+     private final String userId;
+     private final String showId;
+     private final List<String> seatIds;
+
+     private BookingStatus status;
+     private Instant reservationExpiresAt;
+
+     public Booking(
+             String id,
+             String userId,
+             String showId,
+             List<String> seatIds,
+             Instant reservationExpiresAt) {
+
+         this.id = id;
+         this.userId = userId;
+         this.showId = showId;
+         this.seatIds = seatIds;
+         this.reservationExpiresAt = reservationExpiresAt;
+         this.status = BookingStatus.RESERVED;
+     }
+
+     public void confirm() {
+         if (status != BookingStatus.RESERVED) {
+             throw new IllegalStateException(
+                     "Booking cannot be confirmed");
+         }
+         status = BookingStatus.CONFIRMED;
+     }
+
+     public void expire() {
+         if (status == BookingStatus.RESERVED) {
+             status = BookingStatus.EXPIRED;
+         }
+     }
+
+     public boolean isExpired() {
+         return Instant.now()
+                 .isAfter(reservationExpiresAt);
+     }
+
+     public List<String> getSeatIds() {
+         return seatIds;
+     }
+
+     public String getId() {
+         return id;
+     }
+ }
+
+ interface SeatRepository {
+     List<Seat> findByShowId(String showId);
+     List<Seat> findByIdsForUpdate(
+             String showId,
+             List<String> seatIds);
+     void saveAll(List<Seat> seats);
+ }
+
+ interface BookingRepository {
+     Booking save(Booking booking);
+     Optional<Booking> findById(String bookingId);
+     List<Booking> findExpired();
+ }
+
+
+ class BookingService {
+
+     private final SeatRepository seatRepository;
+     private final BookingRepository bookingRepository;
+
+     public BookingService(
+             SeatRepository seatRepository,
+             BookingRepository bookingRepository) {
+
+         this.seatRepository = seatRepository;
+         this.bookingRepository = bookingRepository;
+     }
+
+     @Transactional
+     public Booking reserveSeats(
+             String userId,
+             String showId,
+             List<String> seatIds) {
+
+         List<Seat> seats =
+                 seatRepository.findByIdsForUpdate(
+                         showId,
+                         seatIds);
+
+         if (seats.size() != seatIds.size()) {
+             throw new IllegalArgumentException(
+                     "Invalid seat selection");
+         }
+
+         for (Seat seat : seats) {
+             if (!seat.isAvailable()) {
+                 throw new IllegalStateException(
+                         "One or more seats unavailable");
+             }
+         }
+
+         for (Seat seat : seats) {
+             seat.reserve();
+         }
+
+         seatRepository.saveAll(seats);
+
+         Booking booking =
+                 new Booking(
+                         UUID.randomUUID().toString(),
+                         userId,
+                         showId,
+                         seatIds,
+                         Instant.now().plus(
+                                 Duration.ofMinutes(5)));
+
+         return bookingRepository.save(booking);
+     }
+ }
+
+ interface PaymentGateway {
+     PaymentResult pay(
+             String userId,
+             BigDecimal amount,
+             String idempotencyKey);
+ }
+
+
+ class PaymentService {
+     private final PaymentGateway paymentGateway;
+     private final BookingRepository bookingRepository;
+     private final SeatRepository seatRepository;
+
+     public void pay(
+             String bookingId,
+             String userId) {
+
+         Booking booking =
+                 bookingRepository.findById(bookingId)
+                         .orElseThrow();
+
+         if (booking.isExpired()) {
+             throw new IllegalStateException(
+                     "Reservation expired");
+         }
+
+         BigDecimal amount =
+                 calculateAmount(booking);
+
+         PaymentResult result =
+                 paymentGateway.pay(
+                         userId,
+                         amount,
+                         booking.getId());
+
+         if (!result.isSuccess()) {
+             throw new IllegalStateException(
+                     "Payment failed");
+         }
+
+         confirmBooking(booking);
+     }
+
+     private void confirmBooking(Booking booking) {
+
+         List<Seat> seats =
+                 seatRepository.findByIdsForUpdate(
+                         booking.getShowId(),
+                         booking.getSeatIds());
+
+         for (Seat seat : seats) {
+             seat.book();
+         }
+
+         seatRepository.saveAll(seats);
+
+         booking.confirm();
+
+         bookingRepository.save(booking);
+     }
+ }

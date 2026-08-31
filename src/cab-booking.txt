@@ -1,0 +1,290 @@
+1. Rider can request a cab.
+2. Request contains pickup and destination.
+3. System finds an available cab.
+4. Cab gets assigned to the rider.
+5. Trip starts and eventually completes.
+6. Cab becomes available again after the trip.
+7. We can support different cab selection strategies.
+
+Core entities
+User
+Driver
+Cab
+Booking
+Trip
+Location
+
+Driver
+  |
+  └── Cab
+
+
+REQUESTED
+    ↓
+ASSIGNED
+    ↓
+IN_PROGRESS
+    ↓
+COMPLETED
+
+
+class Location {
+    private final double latitude;
+    private final double longitude;
+
+    public Location(
+            double latitude,
+            double longitude) {
+
+        this.latitude = latitude;
+        this.longitude = longitude;
+    }
+
+    public double getLatitude() {
+        return latitude;
+    }
+
+    public double getLongitude() {
+        return longitude;
+    }
+}
+
+enum CabStatus {
+    AVAILABLE,
+    BUSY
+}
+
+class Cab {
+
+    private final String id;
+    private final String driverId;
+
+    private Location location;
+    private CabStatus status;
+
+    public Cab(
+            String id,
+            String driverId,
+            Location location) {
+
+        this.id = id;
+        this.driverId = driverId;
+        this.location = location;
+        this.status = CabStatus.AVAILABLE;
+    }
+
+    public boolean isAvailable() {
+        return status == CabStatus.AVAILABLE;
+    }
+
+    public void assign() {
+        if (!isAvailable()) {
+            throw new IllegalStateException(
+                    "Cab is not available");
+        }
+
+        status = CabStatus.BUSY;
+    }
+
+    public void release(Location location) {
+        this.location = location;
+        status = CabStatus.AVAILABLE;
+    }
+
+    public Location getLocation() {
+        return location;
+    }
+
+    public String getId() {
+        return id;
+    }
+}
+
+enum BookingStatus {
+    REQUESTED,
+    ASSIGNED,
+    IN_PROGRESS,
+    COMPLETED,
+    CANCELLED
+}
+
+class Booking {
+    private final String id;
+    private final String riderId;
+    private final Location pickup;
+    private final Location destination;
+
+    private BookingStatus status;
+    private String cabId;
+
+    public Booking(
+            String id,
+            String riderId,
+            Location pickup,
+            Location destination) {
+
+        this.id = id;
+        this.riderId = riderId;
+        this.pickup = pickup;
+        this.destination = destination;
+        this.status = BookingStatus.REQUESTED;
+    }
+
+    public void assignCab(String cabId) {
+        this.cabId = cabId;
+        this.status = BookingStatus.ASSIGNED;
+    }
+
+    public void start() {
+        if (status != BookingStatus.ASSIGNED) {
+            throw new IllegalStateException(
+                    "Booking cannot be started");
+        }
+
+        status = BookingStatus.IN_PROGRESS;
+    }
+
+    public void complete() {
+        if (status != BookingStatus.IN_PROGRESS) {
+            throw new IllegalStateException(
+                    "Booking cannot be completed");
+        }
+
+        status = BookingStatus.COMPLETED;
+    }
+
+    public String getRiderId() {
+        return riderId;
+    }
+
+    public Location getPickup() {
+        return pickup;
+    }
+
+    public Location getDestination() {
+        return destination;
+    }
+
+    public String getCabId() {
+        return cabId;
+    }
+}
+
+interface CabSelectionStrategy {
+    Cab selectCab(
+            List<Cab> cabs,
+            Booking booking
+    );
+}
+
+class NearestCabStrategy
+        implements CabSelectionStrategy {
+
+    @Override
+    public Cab selectCab(
+            List<Cab> cabs,
+            Booking booking) {
+
+        return cabs.stream()
+                .filter(Cab::isAvailable)
+                .min(
+                    Comparator.comparingDouble(
+                        cab -> distance(
+                            cab.getLocation(),
+                            booking.getPickup()
+                        )
+                    )
+                )
+                .orElseThrow(
+                    () -> new IllegalStateException(
+                            "No cab available")
+                );
+    }
+
+    private double distance(
+            Location a,
+            Location b) {
+
+        // Simplified distance calculation.
+        return Math.sqrt(
+                Math.pow(
+                    a.getLatitude() - b.getLatitude(),
+                    2
+                )
+                +
+                Math.pow(
+                    a.getLongitude() - b.getLongitude(),
+                    2
+                )
+        );
+    }
+}
+
+interface CabRepository {
+    List<Cab> findAvailableCabs();
+    Cab findById(String cabId);
+    void save(Cab cab);
+}
+
+interface BookingRepository {
+    Booking save(Booking booking);
+    Booking findById(String bookingId);
+    Optional<Booking> findActiveByRiderId(
+            String riderId);
+}
+
+class BookingService {
+    private final CabRepository cabRepository;
+    private final BookingRepository bookingRepository;
+    private final CabSelectionStrategy selectionStrategy;
+
+    public BookingService(
+            CabRepository cabRepository,
+            BookingRepository bookingRepository,
+            CabSelectionStrategy selectionStrategy) {
+
+        this.cabRepository = cabRepository;
+        this.bookingRepository = bookingRepository;
+        this.selectionStrategy = selectionStrategy;
+    }
+
+    public Booking book(
+            String riderId,
+            Location pickup,
+            Location destination) {
+
+        if (bookingRepository
+                .findActiveByRiderId(riderId)
+                .isPresent()) {
+
+            throw new IllegalStateException(
+                    "Rider already has an active booking");
+        }
+
+        Booking booking =
+                new Booking(
+                        UUID.randomUUID().toString(),
+                        riderId,
+                        pickup,
+                        destination
+                );
+
+        List<Cab> availableCabs =
+                cabRepository.findAvailableCabs();
+
+        Cab cab =
+                selectionStrategy.selectCab(
+                        availableCabs,
+                        booking);
+
+        cab.assign();
+
+        booking.assignCab(cab.getId());
+
+        cabRepository.save(cab);
+        bookingRepository.save(booking);
+
+        return booking;
+    }
+}
+

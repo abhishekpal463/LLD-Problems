@@ -1,0 +1,274 @@
+1. Customer can browse a restaurant's menu.
+2. Customer can place an order from one restaurant.
+3. Customer can make a payment.
+4. Restaurant can accept/reject the order.
+5. Restaurant prepares the order.
+6. A delivery partner is assigned.
+7. Delivery partner picks up and delivers the order.
+8. Customer can view order status.
+
+Entities:
+Customer
+Restaurant
+MenuItem
+Order
+OrderItem
+DeliveryPartner
+Payment
+
+
+class Customer {
+    private final String id;
+    private final String name;
+
+    public Customer(String id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    public String getId() {
+        return id;
+    }
+}
+
+class Restaurant {
+    private final String id;
+    private final String name;
+    private final List<MenuItem> menu;
+
+    public Restaurant(
+            String id,
+            String name,
+            List<MenuItem> menu) {
+
+        this.id = id;
+        this.name = name;
+        this.menu = menu;
+    }
+
+    public MenuItem getMenuItem(String itemId) {
+        return menu.stream()
+                .filter(item -> item.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(
+                        () -> new IllegalArgumentException(
+                                "Menu item not found"));
+    }
+
+    public String getId() {
+        return id;
+    }
+}
+
+class MenuItem {
+    private final String id;
+    private final String name;
+    private final BigDecimal price;
+
+    public MenuItem(
+            String id,
+            String name,
+            BigDecimal price) {
+
+        this.id = id;
+        this.name = name;
+        this.price = price;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
+    }
+}
+
+class OrderItem {
+    private final String menuItemId;
+    private final int quantity;
+    private final BigDecimal unitPrice;
+
+    public OrderItem(
+            String menuItemId,
+            int quantity,
+            BigDecimal unitPrice) {
+
+        this.menuItemId = menuItemId;
+        this.quantity = quantity;
+        this.unitPrice = unitPrice;
+    }
+
+    public BigDecimal getTotal() {
+        return unitPrice.multiply(
+                BigDecimal.valueOf(quantity));
+    }
+}
+
+enum OrderStatus {
+    PLACED,
+    PAYMENT_CONFIRMED,
+    RESTAURANT_ACCEPTED,
+    PREPARING,
+    READY_FOR_PICKUP,
+    OUT_FOR_DELIVERY,
+    DELIVERED,
+    REJECTED
+}
+
+class Order {
+
+    private final String id;
+    private final String customerId;
+    private final String restaurantId;
+    private final List<OrderItem> items;
+
+    private OrderStatus status;
+
+    public Order(
+            String id,
+            String customerId,
+            String restaurantId,
+            List<OrderItem> items) {
+
+        this.id = id;
+        this.customerId = customerId;
+        this.restaurantId = restaurantId;
+        this.items = items;
+        this.status = OrderStatus.PLACED;
+    }
+
+    public void confirmPayment() {
+        requireStatus(OrderStatus.PLACED);
+        status = OrderStatus.PAYMENT_CONFIRMED;
+    }
+
+    public void acceptByRestaurant() {
+        requireStatus(OrderStatus.PAYMENT_CONFIRMED);
+        status = OrderStatus.RESTAURANT_ACCEPTED;
+    }
+
+    public void startPreparing() {
+        requireStatus(OrderStatus.RESTAURANT_ACCEPTED);
+        status = OrderStatus.PREPARING;
+    }
+
+    public void markReady() {
+        requireStatus(OrderStatus.PREPARING);
+        status = OrderStatus.READY_FOR_PICKUP;
+    }
+
+    public void markOutForDelivery() {
+        requireStatus(OrderStatus.READY_FOR_PICKUP);
+        status = OrderStatus.OUT_FOR_DELIVERY;
+    }
+
+    public void markDelivered() {
+        requireStatus(OrderStatus.OUT_FOR_DELIVERY);
+        status = OrderStatus.DELIVERED;
+    }
+
+    private void requireStatus(OrderStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException(
+                    "Invalid order state transition");
+        }
+    }
+}
+
+interface OrderState {
+    void accept(Order order);
+    void prepare(Order order);
+    void markReady(Order order);
+    ...
+}
+
+interface PaymentGateway {
+    PaymentResult pay(
+            String customerId,
+            BigDecimal amount);
+}
+
+class RazorpayGateway implements PaymentGateway {
+    @Override
+    public PaymentResult pay(
+            String customerId,
+            BigDecimal amount) {
+
+        // Call payment provider
+        return new PaymentResult(true);
+    }
+}
+
+class PaymentResult {
+    private final boolean success;
+    public PaymentResult(boolean success) {
+        this.success = success;
+    }
+
+    public boolean isSuccess() {
+        return success;
+    }
+}
+
+enum DeliveryStatus {
+    AVAILABLE,
+    BUSY
+}
+
+class DeliveryPartner {
+
+    private final String id;
+    private DeliveryStatus status;
+
+    public DeliveryPartner(String id) {
+        this.id = id;
+        this.status = DeliveryStatus.AVAILABLE;
+    }
+
+    public boolean isAvailable() {
+        return status == DeliveryStatus.AVAILABLE;
+    }
+
+    public void assign() {
+        if (!isAvailable()) {
+            throw new IllegalStateException(
+                    "Partner unavailable");
+        }
+
+        status = DeliveryStatus.BUSY;
+    }
+
+    public void release() {
+        status = DeliveryStatus.AVAILABLE;
+    }
+
+    public String getId() {
+        return id;
+    }
+}
+
+interface DeliveryAssignmentStrategy {
+    DeliveryPartner assign(
+            List<DeliveryPartner> partners,
+            Order order
+    );
+}
+
+class FirstAvailableStrategy
+        implements DeliveryAssignmentStrategy {
+
+    @Override
+    public DeliveryPartner assign(
+            List<DeliveryPartner> partners,
+            Order order) {
+
+        return partners.stream()
+                .filter(DeliveryPartner::isAvailable)
+                .findFirst()
+                .orElseThrow(
+                        () -> new IllegalStateException(
+                                "No delivery partner available"));
+    }
+}
+

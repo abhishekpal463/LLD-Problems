@@ -1,0 +1,118 @@
+LRU Cache
+
+1. Cache stores key-value pairs.
+2. get(key) returns the value if present.
+3. put(key, value) inserts or updates a value.
+4. Cache has a fixed capacity.
+5. When capacity is exceeded, the least recently used entry is removed.
+6. get() and put() should be O(1).
+
+
+HashMap
+   ↓
+key → Node
+
+Node
+  ↕
+Doubly Linked List
+
+class Node<K, V> {
+    K key;
+    V value;
+
+    Node<K, V> prev;
+    Node<K, V> next;
+
+    Node(K key, V value) {
+        this.key = key;
+        this.value = value;
+    }
+}
+
+class LRUCache<K, V> {
+
+    private final int capacity;
+    private final Map<K, Node<K, V>> cache;
+
+    private final Node<K, V> head;
+    private final Node<K, V> tail;
+
+    public LRUCache(int capacity) {
+
+        if (capacity <= 0) {
+            throw new IllegalArgumentException(
+                    "Capacity must be positive"
+            );
+        }
+
+        this.capacity = capacity;
+        this.cache = new HashMap<>();
+
+        head = new Node<>(null, null);
+        tail = new Node<>(null, null);
+
+        head.next = tail;
+        tail.prev = head;
+    }
+
+    public V get(K key) {
+
+        Node<K, V> node = cache.get(key);
+
+        if (node == null) {
+            return null;
+        }
+
+        moveToFront(node);
+
+        return node.value;
+    }
+
+    public void put(K key, V value) {
+
+        Node<K, V> node = cache.get(key);
+
+        if (node != null) {
+            node.value = value;
+            moveToFront(node);
+            return;
+        }
+
+        node = new Node<>(key, value);
+
+        cache.put(key, node);
+        addToFront(node);
+
+        if (cache.size() > capacity) {
+            removeLeastRecentlyUsed();
+        }
+    }
+
+    private void moveToFront(Node<K, V> node) {
+        remove(node);
+        addToFront(node);
+    }
+
+    private void addToFront(Node<K, V> node) {
+
+        node.next = head.next;
+        node.prev = head;
+
+        head.next.prev = node;
+        head.next = node;
+    }
+
+    private void remove(Node<K, V> node) {
+
+        node.prev.next = node.next;
+        node.next.prev = node.prev;
+    }
+
+    private void removeLeastRecentlyUsed() {
+
+        Node<K, V> lru = tail.prev;
+
+        remove(lru);
+        cache.remove(lru.key);
+    }
+}
