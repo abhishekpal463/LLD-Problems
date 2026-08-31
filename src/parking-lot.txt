@@ -1,0 +1,238 @@
+1. Parking lot has multiple parking spots.
+2. We support different vehicle types:
+   - Car
+   - Bike
+   - Truck
+3. A vehicle can enter and be assigned an available compatible spot.
+4. A vehicle can exit.
+5. We calculate parking fee when it exits.
+6. Parking spots become available again after exit.
+
+- One parking lot.
+- Each spot supports a particular vehicle type.
+- Fee depends on vehicle type and parking duration.
+
+entities
+--------
+ParkingLot
+ParkingSpot
+Vehicle
+Ticket
+
+services:
+ParkingService
+FeeCalculator
+
+ParkingLot
+   |
+   ├── ParkingSpot
+   └── active Tickets
+
+Ticket
+   └── Vehicle
+
+enum VehicleType {
+    BIKE,
+    CAR,
+    TRUCK
+}
+
+class Vehicle {
+
+    private final String number;
+    private final VehicleType type;
+
+    public Vehicle(String number, VehicleType type) {
+        this.number = number;
+        this.type = type;
+    }
+
+    public VehicleType getType() {
+        return type;
+    }
+
+    public String getNumber() {
+        return number;
+    }
+}
+
+class ParkingSpot {
+    private final String id;
+    private final VehicleType type;
+    private boolean occupied;
+
+    public ParkingSpot(
+            String id,
+            SpotType type) {
+
+        this.id = id;
+        this.type = type;
+    }
+
+    public boolean canFit(Vehicle vehicle) {
+        return !occupied
+                && type.equals(vehicle.getType());
+    }
+
+    public void occupy() {
+        occupied = true;
+    }
+
+    public void release() {
+        occupied = false;
+    }
+}
+
+
+class ParkingTicket {
+
+    private final String id;
+    private final Vehicle vehicle;
+    private final ParkingSpot spot;
+    private final Instant entryTime;
+
+    private Instant exitTime;
+
+    public ParkingTicket(
+            String id,
+            Vehicle vehicle,
+            ParkingSpot spot) {
+
+        this.id = id;
+        this.vehicle = vehicle;
+        this.spot = spot;
+        this.entryTime = Instant.now();
+    }
+
+    public void close() {
+        exitTime = Instant.now();
+    }
+
+    public Duration getDuration() {
+        Instant end =
+                exitTime != null
+                        ? exitTime
+                        : Instant.now();
+
+        return Duration.between(entryTime, end);
+    }
+
+    public Vehicle getVehicle() {
+        return vehicle;
+    }
+
+    public ParkingSpot getSpot() {
+        return spot;
+    }
+}
+
+
+class ParkingLot {
+
+    private final List<ParkingSpot> spots;
+
+    public ParkingLot(List<ParkingSpot> spots) {
+        this.spots = spots;
+    }
+
+    public ParkingSpot findAvailableSpot(
+            Vehicle vehicle) {
+
+        return spots.stream()
+                .filter(spot -> spot.canFit(vehicle))
+                .findFirst()
+                .orElseThrow(
+                    () -> new IllegalStateException(
+                        "No parking spot available"
+                    )
+                );
+    }
+}
+
+interface FeeCalculator {
+
+    BigDecimal calculate(
+            ParkingTicket ticket
+    );
+}
+
+class StandardFeeCalculator
+        implements FeeCalculator {
+
+    @Override
+    public BigDecimal calculate(
+            ParkingTicket ticket) {
+
+        long hours =
+                Math.max(
+                    1,
+                    ticket.getDuration().toHours()
+                );
+
+        BigDecimal rate;
+
+        switch (ticket.getVehicle().getType()) {
+            case BIKE:
+                rate = BigDecimal.valueOf(20);
+                break;
+
+            case CAR:
+                rate = BigDecimal.valueOf(50);
+                break;
+
+            case TRUCK:
+                rate = BigDecimal.valueOf(100);
+                break;
+
+            default:
+                throw new IllegalArgumentException();
+        }
+
+        return rate.multiply(
+                BigDecimal.valueOf(hours)
+        );
+    }
+}
+
+class ParkingService {
+
+    private final ParkingLot parkingLot;
+    private final FeeCalculator feeCalculator;
+
+    public ParkingService(
+            ParkingLot parkingLot,
+            FeeCalculator feeCalculator) {
+
+        this.parkingLot = parkingLot;
+        this.feeCalculator = feeCalculator;
+    }
+
+    public ParkingTicket park(Vehicle vehicle) {
+
+        ParkingSpot spot =
+                parkingLot.findAvailableSpot(
+                        vehicle
+                );
+
+        spot.occupy();
+
+        return new ParkingTicket(
+                UUID.randomUUID().toString(),
+                vehicle,
+                spot
+        );
+    }
+
+    public BigDecimal unpark(
+            ParkingTicket ticket) {
+
+        ticket.close();
+
+        BigDecimal fee =
+                feeCalculator.calculate(ticket);
+
+        ticket.getSpot().release();
+
+        return fee;
+    }
+}

@@ -1,0 +1,274 @@
+1. Seller can create an auction for an item at any time.
+2. Bidders can place multiple bids on an active auction.
+3. A bidder becomes the winner when no higher bid is received
+   for 1 hour.
+4. Winner gets 10 minutes to complete payment.
+5. A bidder can participate in only one active auction at a time.
+6. We need to maintain auction and bid state.
+
+Entities
+User
+Item
+Auction
+Bid
+Payment
+
+users
+-----
+id PK
+name
+created_at
+updated_at
+
+items
+-----
+id PK
+seller_id FK -> user
+name
+description
+created_at
+updated_at
+
+auctions
+--------
+id PK
+item_id FK
+seller_id FK -> user
+status
+start_time
+current_highest_bid
+current_highest_bidder_id
+winner_id -> user
+payment_deadline
+created_at
+updated_at
+
+bids
+----
+id PK
+auction_id FK
+bidder_id FK
+amount
+created_at
+
+auction_participants //A user can only bid on one item at a time.
+---------------------
+id PK
+auction_id FK
+user_id FK
+status
+created_at
+updated_at
+
+In PostgreSQL this can be enforced with a partial unique index:
+
+CREATE UNIQUE INDEX
+one_active_auction_per_user
+ON auction_participants(user_id)
+WHERE status = 'ACTIVE';
+
+When a bid comes in, I'll first validate that the auction is active. Then I'll ensure the
+bidder doesn't already have another active auction participation. Finally I'll atomically
+verify that the bid is greater than the current highest bid and update the auction
+
+State Change pattern
+ACTIVE
+PAYMENT_PENDING
+COMPLETED
+EXPIRED
+
+class Auction {
+
+    private String id;
+    private String itemId;
+    private String sellerId;
+
+    private BigDecimal highestBid;
+    private String highestBidderId;
+
+    private Instant lastBidAt;
+    private Instant paymentDeadline;
+
+    private AuctionState state;
+
+    public Auction(
+            String id,
+            String itemId,
+            String sellerId
+    ) {
+        this.id = id;
+        this.itemId = itemId;
+        this.sellerId = sellerId;
+        this.state = new ActiveState();
+    }
+
+    public void placeBid(Bid bid) {
+        state.placeBid(this, bid);
+    }
+
+    public void moveToPaymentPending() {
+        state = new PaymentPendingState();
+        paymentDeadline = Instant.now().plus(10, ChronoUnit.MINUTES);
+    }
+
+    public void expire() {
+        state = new ExpiredState();
+    }
+
+    // Domain methods used by states
+
+    public void updateHighestBid(Bid bid) {
+        this.highestBid = bid.getAmount();
+        this.highestBidderId = bid.getBidderId();
+        this.lastBidAt = bid.getCreatedAt();
+    }
+
+    public BigDecimal getHighestBid() {
+        return highestBid;
+    }
+
+    public Instant getLastBidAt() {
+        return lastBidAt;
+    }
+}
+
+
+class Bid {
+    private String id;
+    private String auctionId;
+    private String bidderId;
+    private BigDecimal amount;
+    private Instant createdAt;
+
+    public Bid(
+            String id,
+            String auctionId,
+            String bidderId,
+            BigDecimal amount
+    ) {
+        this.id = id;
+        this.auctionId = auctionId;
+        this.bidderId = bidderId;
+        this.amount = amount;
+        this.createdAt = Instant.now();
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public String getBidderId() {
+        return bidderId;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+}
+
+interface AuctionState {
+    void placeBid(Auction auction, Bid bid);
+    void timeout(Auction auction);
+}
+
+class ActiveState implements AuctionState {
+
+    @Override
+    public void placeBid(Auction auction, Bid bid) {
+
+        if (auction.getHighestBid() != null &&
+            bid.getAmount().compareTo(
+                auction.getHighestBid()
+            ) <= 0) {
+
+            throw new IllegalArgumentException(
+                "Bid must be higher than current highest bid"
+            );
+        }
+
+        auction.updateHighestBid(bid);
+    }
+
+    @Override
+    public void timeout(Auction auction) {
+        auction.moveToPaymentPending();
+    }
+}
+
+class PaymentPendingState implements AuctionState {
+
+    @Override
+    public void placeBid(Auction auction, Bid bid) {
+        throw new IllegalStateException(
+            "Auction is no longer accepting bids"
+        );
+    }
+
+    @Override
+    public void timeout(Auction auction) {
+        auction.expire();
+    }
+}
+
+class ExpiredState implements AuctionState {
+
+    @Override
+    public void placeBid(Auction auction, Bid bid) {
+        throw new IllegalStateException(
+            "Auction has expired"
+        );
+    }
+
+    @Override
+    public void timeout(Auction auction) {
+        // Nothing to do
+    }
+}
+
+class AuctionService {
+
+    private final AuctionRepository auctionRepository;
+    private final BidRepository bidRepository;
+
+    public void placeBid(
+            String auctionId,
+            String userId,
+            BigDecimal amount
+    ) {
+
+        Auction auction =
+                auctionRepository.findForUpdate(auctionId);
+
+        Bid bid = new Bid(
+                UUID.randomUUID().toString(),
+                auctionId,
+                userId,
+                amount
+        );
+
+        auction.placeBid(bid);
+
+        bidRepository.save(bid);
+        auctionRepository.save(auction);
+    }
+}
+
+interface AuctionRepository {
+    Auction findForUpdate(String auctionId);
+    Auction save(Auction auction);
+}
+
+class PostgresAuctionRepository
+        implements AuctionRepository {
+
+    @Override
+    public Auction findForUpdate(String auctionId) {
+        // SELECT ... FOR UPDATE
+    }
+    @Override
+    public Auction save(Auction auction) {
+        // UPDATE auctions ...
+    }
+}
+
+// Payment using Strategy

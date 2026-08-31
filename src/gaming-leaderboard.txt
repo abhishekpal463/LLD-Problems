@@ -1,0 +1,111 @@
+1. A player can submit/update their score.
+2. System maintains player rankings.
+3. User can fetch the leaderboard.
+4. User can fetch their own rank.
+5. Leaderboard should support many players.
+
+
+Core entities
+Player
+LeaderboardEntry
+Leaderboard
+
+Leaderboard
+    |
+    └── many LeaderboardEntry
+                  |
+                  └── Player
+
+
+class LeaderboardEntry {
+    private final String playerId;
+    private long score;
+    private final Instant achievedAt;
+
+    public LeaderboardEntry(
+            String playerId,
+            long score,
+            Instant achievedAt) {
+
+        this.playerId = playerId;
+        this.score = score;
+        this.achievedAt = achievedAt;
+    }
+
+    public void updateScore(
+            long score,
+            Instant achievedAt) {
+
+        this.score = score;
+    }
+
+    public String getPlayerId() {
+        return playerId;
+    }
+
+    public long getScore() {
+        return score;
+    }
+
+    public Instant getAchievedAt() {
+        return achievedAt;
+    }
+}
+
+interface RankingStrategy {
+    int compare(
+            LeaderboardEntry a,
+            LeaderboardEntry b
+    );
+}
+
+class HighestScoreRanking
+        implements RankingStrategy {
+
+    @Override
+    public int compare(
+            LeaderboardEntry a,
+            LeaderboardEntry b) {
+
+        int scoreCompare =
+                Long.compare(
+                        b.getScore(),
+                        a.getScore()
+                );
+
+        if (scoreCompare != 0) {
+            return scoreCompare;
+        }
+
+        return a.getAchievedAt()
+                .compareTo(b.getAchievedAt());
+    }
+}
+
+class Leaderboard {
+    private final Map<String, LeaderboardEntry> entries;
+    private final RankingStrategy rankingStrategy;
+
+    public Leaderboard(
+            RankingStrategy rankingStrategy) {
+
+        this.entries = new HashMap<>();
+        this.rankingStrategy = rankingStrategy;
+    }
+
+    public void updateScore(
+            String playerId,
+            long score) {
+
+        // create/update entry
+    }
+
+    public List<LeaderboardEntry> getTop(int limit) {
+
+        return entries.values()
+                .stream()
+                .sorted(rankingStrategy::compare)
+                .limit(limit)
+                .toList();
+    }
+}

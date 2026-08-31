@@ -1,0 +1,120 @@
+class ShortUrl {
+
+    private final String id;
+    private final String shortCode;
+    private final String originalUrl;
+    private final Instant createdAt;
+
+    public ShortUrl(
+            String id,
+            String shortCode,
+            String originalUrl
+    ) {
+        this.id = id;
+        this.shortCode = shortCode;
+        this.originalUrl = originalUrl;
+        this.createdAt = Instant.now();
+    }
+
+    public String getShortCode() {
+        return shortCode;
+    }
+
+    public String getOriginalUrl() {
+        return originalUrl;
+    }
+}
+
+class Click {
+
+    private final String shortUrlId;
+    private final Instant clickedAt;
+
+    public Click(
+            String shortUrlId,
+            Instant clickedAt
+    ) {
+        this.shortUrlId = shortUrlId;
+        this.clickedAt = clickedAt;
+    }
+}
+
+interface ShortCodeGenerator {
+
+    String generate();
+}
+
+class RandomShortCodeGenerator
+        implements ShortCodeGenerator {
+
+    @Override
+    public String generate() {
+        // Generate 6-8 character Base62 string
+        return ...;
+    }
+}
+
+class UrlService {
+
+    private final ShortUrlRepository repository;
+    private final ShortCodeGenerator codeGenerator;
+
+    public UrlService(
+            ShortUrlRepository repository,
+            ShortCodeGenerator codeGenerator
+    ) {
+        this.repository = repository;
+        this.codeGenerator = codeGenerator;
+    }
+
+    public ShortUrl createShortUrl(String originalUrl) {
+
+        validateUrl(originalUrl);
+
+        String code = codeGenerator.generate();
+
+        while (repository.existsByCode(code)) {
+            code = codeGenerator.generate();
+        }
+
+        ShortUrl shortUrl =
+                new ShortUrl(
+                        UUID.randomUUID().toString(),
+                        code,
+                        originalUrl
+                );
+
+        return repository.save(shortUrl);
+    }
+
+    private void validateUrl(String url) {
+        // validation
+    }
+}
+
+class RedirectService {
+
+    private final ShortUrlRepository repository;
+    private final ClickTrackingService clickTrackingService;
+
+    public RedirectService(
+            ShortUrlRepository repository,
+            ClickTrackingService clickTrackingService
+    ) {
+        this.repository = repository;
+        this.clickTrackingService = clickTrackingService;
+    }
+
+    public String redirect(String shortCode) {
+
+        ShortUrl shortUrl =
+                repository.findByCode(shortCode)
+                        .orElseThrow(
+                            () -> new UrlNotFoundException()
+                        );
+
+        clickTrackingService.recordClick(shortUrl);
+
+        return shortUrl.getOriginalUrl();
+    }
+}

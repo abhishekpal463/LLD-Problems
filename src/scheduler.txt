@@ -1,0 +1,263 @@
+1. Create/schedule a job.
+2. Job should execute at its scheduled time.
+3. Failed jobs should be retried.
+4. Retry delay should increase using exponential backoff.
+5. Maximum retry count should be configurable.
+6. Job should eventually reach COMPLETED or FAILED.
+
+Core entities
+Job
+RetryPolicy
+Scheduler
+Worker
+
+Job
+ ├── status
+ ├── scheduledAt
+ ├── retryCount
+ └── nextRetryAt
+
+Job status
+----------
+SCHEDULED
+RUNNING
+COMPLETED
+
+
+Failure:
+RUNNING
+   ↓
+failed
+   ↓
+retry available?
+ ┌───────┴───────┐
+ yes             no
+  ↓               ↓
+SCHEDULED        FAILED
+
+
+The scheduler needs to efficiently find:
+jobs where
+status = SCHEDULED
+AND next_run_at <= now
+
+
+jobs
+----
+id PK
+type
+payload
+status
+scheduled_at
+next_run_at
+retry_count
+max_retries
+last_error
+created_at
+updated_at
+
+
+class Job {
+
+    private final String id;
+    private final String type;
+    private final String payload;
+
+    private JobStatus status;
+    private Instant nextRunAt;
+
+    private int retryCount;
+    private String lastError;
+
+    public void markRunning() {
+        this.status = JobStatus.RUNNING;
+    }
+
+    public void markCompleted() {
+        this.status = JobStatus.COMPLETED;
+    }
+
+    public void scheduleRetry(
+            Instant nextRunAt,
+            String error
+    ) {
+        this.retryCount++;
+        this.nextRunAt = nextRunAt;
+        this.lastError = error;
+        this.status = JobStatus.SCHEDULED;
+    }
+
+    public void markFailed(String error) {
+        this.status = JobStatus.FAILED;
+        this.lastError = error;
+    }
+}
+
+
+interface BackoffStrategy {
+    Duration nextDelay(int retryCount);
+}
+
+class ExponentialBackoffStrategy
+        implements BackoffStrategy {
+
+    private final Duration initialDelay;
+    private final Duration maxDelay;
+
+    public ExponentialBackoffStrategy(
+            Duration initialDelay,
+            Duration maxDelay) {
+        this.initialDelay = initialDelay;
+        this.maxDelay = maxDelay;
+    }
+
+    @Override
+    public Duration nextDelay(int retryCount) {
+
+        long delay =
+                initialDelay.toMillis()
+                * (1L << (retryCount - 1));
+
+        delay = Math.min(
+                delay,
+                maxDelay.toMillis()
+        );
+        return Duration.ofMillis(delay);
+    }
+}
+
+class RetryPolicy {
+
+    private final int maxRetries;
+    private final BackoffStrategy backoffStrategy;
+
+    public RetryPolicy(
+            int maxRetries,
+            BackoffStrategy backoffStrategy) {
+
+        this.maxRetries = maxRetries;
+        this.backoffStrategy = backoffStrategy;
+    }
+
+    public boolean canRetry(int retryCount) {
+        return retryCount < maxRetries;
+    }
+
+    public Duration getDelay(int retryCount) {
+        return backoffStrategy.nextDelay(retryCount);
+    }
+}
+
+interface JobHandler {
+    void execute(Job job);
+}
+
+class EmailJobHandler implements JobHandler {
+    @Override
+    public void execute(Job job) {
+        // send email
+    }
+}
+
+class DefaultJobHandlerRegistry
+        implements JobHandlerRegistry {
+
+    private final Map<String, JobHandler> handlers;
+
+    public DefaultJobHandlerRegistry(
+            Map<String, JobHandler> handlers) {
+        this.handlers = handlers;
+    }
+
+    @Override
+    public JobHandler getHandler(String type) {
+
+        JobHandler handler = handlers.get(type);
+
+        if (handler == null) {
+            throw new IllegalArgumentException(
+                    "Unsupported job type"
+            );
+        }
+
+        return handler;
+    }
+}
+
+class JobWorker {
+    private final JobRepository jobRepository;
+    private final JobHandlerRegistry handlerRegistry;
+    private final RetryPolicy retryPolicy;
+
+    public JobWorker(
+            JobRepository jobRepository,
+            JobHandlerRegistry handlerRegistry,
+            RetryPolicy retryPolicy) {
+
+        this.jobRepository = jobRepository;
+        this.handlerRegistry = handlerRegistry;
+        this.retryPolicy = retryPolicy;
+    }
+
+    public void process(String jobId) {
+
+        Job job = jobRepository.findById(jobId);
+
+        try {
+            job.markRunning();
+            jobRepository.save(job);
+
+            JobHandler handler =
+                    handlerRegistry.getHandler(
+                            job.getType());
+
+            handler.execute(job);
+
+            job.markCompleted();
+            jobRepository.save(job);
+
+        } catch (Exception e) {
+            handleFailure(job, e);
+        }
+    }
+
+    private void handleFailure(
+            Job job,
+            Exception exception) {
+
+        int retryCount = job.getRetryCount() + 1;
+
+        if (retryPolicy.canRetry(retryCount)) {
+
+            Duration delay =
+                    retryPolicy.getDelay(retryCount);
+
+            job.retry(
+                    Instant.now().plus(delay),
+                    exception.getMessage()
+            );
+
+        } else {
+
+            job.markFailed(
+                    exception.getMessage()
+            );
+        }
+
+        jobRepository.save(job);
+    }
+}
+
+class JobScheduler {
+
+    private final JobRepository repository;
+
+    public JobScheduler(JobRepository repository) {
+        this.repository = repository;
+    }
+
+    public List<Job> getDueJobs() {
+        return repository.findDueJobs(Instant.now());
+    }
+}
+

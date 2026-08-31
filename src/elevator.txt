@@ -1,0 +1,159 @@
+1. Building has multiple floors.
+2. Building has multiple elevators.
+3. User can request an elevator from a floor.
+4. User can select a destination floor once inside.
+5. System should select the most appropriate elevator.
+6. Elevator moves between floors and maintains its current state.
+7. Elevator can be IDLE, MOVING or DOOR_OPEN.
+
+entities:
+Building
+Elevator
+Floor
+ElevatorRequest
+
+Services/interfaces:
+ElevatorSystem
+ElevatorSelectionStrategy
+
+Relationship:
+Building
+   |
+   ├── Floors
+   └── Elevators
+
+enum Direction {
+    UP,
+    DOWN,
+    NONE
+}
+
+enum ElevatorStatus {
+    IDLE,
+    BUSY
+}
+
+class Elevator {
+
+    private final String id;
+    private int currentFloor;
+    private ElevatorStatus status;
+
+    public Elevator(String id, int currentFloor) {
+        this.id = id;
+        this.currentFloor = currentFloor;
+        this.status = ElevatorStatus.IDLE;
+    }
+
+    public boolean isAvailable() {
+        return status == ElevatorStatus.IDLE;
+    }
+
+    public void serve(ElevatorRequest request) {
+
+        status = ElevatorStatus.BUSY;
+
+        moveTo(request.getSourceFloor());
+        moveTo(request.getDestinationFloor());
+
+        status = ElevatorStatus.IDLE;
+    }
+
+    private void moveTo(int floor) {
+        currentFloor = floor;
+    }
+
+    public int getCurrentFloor() {
+        return currentFloor;
+    }
+
+    public String getId() {
+        return id;
+    }
+}
+
+class ElevatorRequest {
+
+    private final String userId;
+    private final int sourceFloor;
+    private final int destinationFloor;
+
+    public ElevatorRequest(
+            String userId,
+            int sourceFloor,
+            int destinationFloor) {
+
+        this.userId = userId;
+        this.sourceFloor = sourceFloor;
+        this.destinationFloor = destinationFloor;
+    }
+
+    public int getSourceFloor() {
+        return sourceFloor;
+    }
+
+    public int getDestinationFloor() {
+        return destinationFloor;
+    }
+}
+
+interface ElevatorSelectionStrategy {
+    Elevator selectElevator(
+            List<Elevator> elevators,
+            ElevatorRequest request
+    );
+}
+
+class NearestElevatorStrategy
+        implements ElevatorSelectionStrategy {
+
+    @Override
+    public Elevator selectElevator(
+            List<Elevator> elevators,
+            ElevatorRequest request) {
+
+        return elevators.stream()
+                .filter(Elevator::isAvailable)
+                .min(Comparator.comparingInt(
+                        elevator ->
+                                Math.abs(
+                                    elevator.getCurrentFloor()
+                                    - request.getSourceFloor()
+                                )
+                ))
+                .orElseThrow(
+                        () -> new IllegalStateException(
+                                "No elevator available"
+                        )
+                );
+    }
+}
+
+class ElevatorSystem {
+
+    private final List<Elevator> elevators;
+    private final ElevatorSelectionStrategy selectionStrategy;
+
+    public ElevatorSystem(
+            List<Elevator> elevators,
+            ElevatorSelectionStrategy selectionStrategy) {
+
+        this.elevators = elevators;
+        this.selectionStrategy = selectionStrategy;
+    }
+
+    public Elevator requestElevator(
+            ElevatorRequest request) {
+
+        Elevator elevator =
+                selectionStrategy.selectElevator(
+                        elevators,
+                        request
+                );
+
+        elevator.serve(request);
+
+        return elevator;
+    }
+}
+

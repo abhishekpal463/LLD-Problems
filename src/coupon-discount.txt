@@ -1,0 +1,180 @@
+Coupon Platform Design: Design a coupon platform for an e-commerce system (e.g. Amazon). The platform should
+support multiple coupon types (e.g. flat rupee discount, percentage off, and other variants). Expected coverage:
+class design for different coupon types, API design, and a scalable, extensible architecture that allows new coupon
+types to be added with minimal changes to existing code.
+
+User
+UserType
+Coupon
+DiscountType
+Cart
+
+
+GET /coupons/list
+POST /coupons
+PATCH/DELETE
+
+post /apply-coupon?couponId=xyz&cart=
+
+Coupon
+
+
+class Coupon {
+    private String id;
+    private String code;
+    private DiscountType discountType;
+    private BigDecimal value;
+
+    private Instant validFrom;
+    private Instant validUntil;
+
+    private boolean active;
+
+    public boolean isValidAt(Instant now) {
+        return active
+                && !now.isBefore(validFrom)
+                && !now.isAfter(validUntil);
+    }
+}
+
+enum DiscountType {
+    FLAT,
+    PERCENTAGE
+}
+
+class CartItem {
+
+    private String productId;
+    private BigDecimal price;
+    private int quantity;
+
+    public BigDecimal getTotal() {
+        return price.multiply(
+                BigDecimal.valueOf(quantity)
+        );
+    }
+}
+
+class Cart {
+    private String id;
+    private String userId;
+    private List<CartItem> items;
+
+    public BigDecimal getSubtotal() {
+        return items.stream()
+                .map(CartItem::getTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+}
+
+interface DiscountStrategy {
+    BigDecimal calculateDiscount(
+            Coupon coupon,
+            Cart cart
+    );
+}
+
+class FlatDiscountStrategy implements DiscountStrategy {
+
+    @Override
+    public BigDecimal calculateDiscount(
+            Coupon coupon,
+            Cart cart
+    ) {
+
+        BigDecimal subtotal = cart.getSubtotal();
+
+        return coupon.getValue().min(subtotal);
+    }
+}
+
+class PercentageDiscountStrategy
+        implements DiscountStrategy {
+
+    @Override
+    public BigDecimal calculateDiscount(
+            Coupon coupon,
+            Cart cart
+    ) {
+
+        BigDecimal subtotal = cart.getSubtotal();
+
+        return subtotal
+                .multiply(coupon.getValue())
+                .divide(BigDecimal.valueOf(100));
+    }
+}
+
+interface DiscountStrategyFactory {
+    DiscountStrategy getStrategy(
+            DiscountType type
+    );
+}
+
+
+class DefaultDiscountStrategyFactory
+        implements DiscountStrategyFactory {
+
+    private final Map<DiscountType, DiscountStrategy> strategies;
+
+    public DefaultDiscountStrategyFactory(
+            Map<DiscountType, DiscountStrategy> strategies) {
+
+        this.strategies = strategies;
+    }
+
+    @Override
+    public DiscountStrategy getStrategy(
+            DiscountType type) {
+
+        DiscountStrategy strategy = strategies.get(type);
+
+        if (strategy == null) {
+            throw new IllegalArgumentException(
+                    "Unsupported discount type: " + type
+            );
+        }
+
+        return strategy;
+    }
+}
+
+class CouponService {
+
+    private final CouponRepository couponRepository;
+    private final DiscountStrategyFactory strategyFactory;
+
+    public CouponResult applyCoupon(
+            String couponCode,
+            Cart cart
+    ) {
+
+        Coupon coupon =
+                couponRepository.findByCode(couponCode)
+                        .orElseThrow(
+                            () -> new CouponNotFoundException()
+                        );
+
+        if (!coupon.isValidAt(Instant.now())) {
+            throw new InvalidCouponException();
+        }
+
+        DiscountStrategy strategy =
+                strategyFactory.getStrategy(
+                        coupon.getDiscountType()
+                );
+
+        BigDecimal discount =
+                strategy.calculateDiscount(coupon, cart);
+
+        BigDecimal finalAmount =
+                cart.getSubtotal().subtract(discount);
+
+        return new CouponResult(
+                discount,
+                finalAmount
+        );
+    }
+}
+
+

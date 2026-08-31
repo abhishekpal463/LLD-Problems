@@ -1,0 +1,100 @@
+1. API Gateway receives a request.
+2. Before forwarding it, the gateway checks whether the client
+   is allowed to make the request.
+3. Each client has a configurable request limit.
+4. If the limit is exceeded, return HTTP 429.
+5. Support configurable limits per client.
+6. The design should allow different rate-limiting algorithms later.
+
+
+
+interface RateLimiter {
+    boolean allow(String clientId);
+}
+
+class TokenBucket {
+
+    private final int capacity;
+    private final double refillRatePerSecond;
+
+    private double tokens;
+    private long lastRefillTime;
+
+    public TokenBucket(
+            int capacity,
+            double refillRatePerSecond
+    ) {
+        this.capacity = capacity;
+        this.refillRatePerSecond = refillRatePerSecond;
+        this.tokens = capacity;
+        this.lastRefillTime = System.nanoTime();
+    }
+
+    public synchronized boolean tryConsume() {
+
+        refill();
+
+        if (tokens < 1) {
+            return false;
+        }
+
+        tokens -= 1;
+        return true;
+    }
+
+    private void refill() {
+
+        long now = System.nanoTime();
+
+        double elapsedSeconds =
+                (now - lastRefillTime) / 1_000_000_000.0;
+
+        tokens = Math.min(
+                capacity,
+                tokens + elapsedSeconds * refillRatePerSecond
+        );
+
+        lastRefillTime = now;
+    }
+}
+
+interface RateLimitStore {
+    TokenBucket getBucket(String clientId);
+}
+
+class InMemoryRateLimitStore
+        implements RateLimitStore {
+
+    private final ConcurrentHashMap<String, TokenBucket> buckets =
+            new ConcurrentHashMap<>();
+
+    @Override
+    public TokenBucket getBucket(String clientId) {
+        return buckets.computeIfAbsent(
+                clientId,
+                id -> new TokenBucket(10, 2)
+        );
+    }
+}
+
+class TokenBucketRateLimiter
+        implements RateLimiter {
+
+    private final RateLimitStore store;
+
+    public TokenBucketRateLimiter(
+            RateLimitStore store
+    ) {
+        this.store = store;
+    }
+
+    @Override
+    public boolean allow(String clientId) {
+
+        TokenBucket bucket =
+                store.getBucket(clientId);
+
+        return bucket.tryConsume();
+    }
+}
+

@@ -1,0 +1,142 @@
+So I would slightly simplify our schema
+
+For the MVP we're solving now, I wouldn't even create Product + PlatformProduct yet.
+
+I'd use:
+
+User
+TrackedProduct
+PriceHistory
+Platform
+
+
+Platform
+--------
+id
+name
+
+
+TrackedProduct
+--------------
+id
+user_id
+platform_id
+external_product_id
+product_url
+product_name
+current_price
+currency
+last_fetched_at
+status
+created_at
+updated_at
+PriceHistory
+
+PriceHistory
+------------
+id
+tracked_product_id
+price
+currency
+fetched_at
+
+This is enough for our current requirements.
+
+class PriceDetails {
+    Float price;
+    String Currency
+    Instant fetchedAt;
+}
+
+interface PriceProvider {
+    Pricedetails fetchPrice(TrackedItem item)
+}
+
+class AmazonPriceProvider extends PriceProvider {
+    Pricedetails fetchPrice(TrackedItem item){
+        //logic
+    }
+}
+
+class FlipkartPriceProvider extends PriceProvider {
+    Pricedetails fetchPrice(TrackedItem item){
+        //logic
+    }
+}
+
+interface PriceProviderFactory {
+    PriceProvider getProvider(Platform p)
+}
+
+class DefaultPriceProviderFactory implements PriceProviderFactory {
+    private final Map<Platform,Provider>providers;
+
+    public DefaultPriceProviderFactory(
+                Map<Platform, PriceProvider> providers) {
+            this.providers = providers;
+    }
+
+    //override method
+}
+
+
+class PriceTrackingService {
+
+    private final TrackedItemRepository trackedItemRepository;
+    private final PriceHistoryRepository priceHistoryRepository;
+    private final PriceProviderFactory priceProviderFactory;
+
+    public PriceTrackingService(
+            TrackedItemRepository trackedItemRepository,
+            PriceHistoryRepository priceHistoryRepository,
+            PriceProviderFactory priceProviderFactory) {
+
+        this.trackedItemRepository = trackedItemRepository;
+        this.priceHistoryRepository = priceHistoryRepository;
+        this.priceProviderFactory = priceProviderFactory;
+    }
+
+    public void refreshPrice(String trackedItemId) {
+
+        TrackedItem item =
+                trackedItemRepository.findById(trackedItemId)
+                        .orElseThrow();
+
+        PriceProvider provider =
+                priceProviderFactory.getProvider(item.getPlatform());
+
+        PriceDetails latestPrice =
+                provider.fetchPrice(item);
+
+        item.setCurrentPrice(latestPrice.getPrice());
+        item.setCurrency(latestPrice.getCurrency());
+        item.setLastFetchedAt(latestPrice.getFetchedAt());
+
+        trackedItemRepository.save(item);
+
+        PriceHistory history = new PriceHistory(
+                item.getId(),
+                latestPrice.getPrice(),
+                latestPrice.getCurrency(),
+                latestPrice.getFetchedAt()
+        );
+
+        priceHistoryRepository.save(history);
+    }
+}
+
+interface TrackedItemRepository {
+    TrackedItem save(TrackedItem item);
+    Optional<TrackedItem> findById(String id);
+    List<TrackedItem> findItemsDueForTracking();
+}
+
+class PostgresTrackedItemRepository
+        implements TrackedItemRepository {
+}
+
+
+
+
+
+

@@ -1,0 +1,237 @@
+1. User can add a product to their watchlist.
+2. User can remove a product from their watchlist.
+3. System knows the current price of the watched item.
+4. When the price drops, user should be notified.
+
+
+entities:
+
+User
+Product
+WatchlistItem
+Notification
+
+User
+  |
+  └── N WatchlistItem
+             |
+             └── Product
+
+
+class Product {
+    private final String id;
+    private final String name;
+
+    private BigDecimal currentPrice;
+    private String currency;
+
+    public Product(
+            String id,
+            String name,
+            BigDecimal currentPrice,
+            String currency) {
+
+        this.id = id;
+        this.name = name;
+        this.currentPrice = currentPrice;
+        this.currency = currency;
+    }
+
+    public void updatePrice(BigDecimal newPrice) {
+        this.currentPrice = newPrice;
+    }
+
+    public BigDecimal getCurrentPrice() {
+        return currentPrice;
+    }
+
+    public String getId() {
+        return id;
+    }
+}
+
+
+class WatchlistItem {
+
+    private final String id;
+    private final String userId;
+    private final String productId;
+
+    private boolean active;
+
+    public WatchlistItem(
+            String id,
+            String userId,
+            String productId) {
+
+        this.id = id;
+        this.userId = userId;
+        this.productId = productId;
+        this.active = true;
+    }
+
+    public void deactivate() {
+        active = false;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public String getProductId() {
+        return productId;
+    }
+}
+
+interface ProductRepository {
+    Optional<Product> findById(String productId);
+    Product save(Product product);
+}
+
+interface WatchlistRepository {
+    WatchlistItem save(WatchlistItem item);
+    Optional<WatchlistItem> findByUserAndProduct(
+            String userId,
+            String productId);
+
+    List<WatchlistItem> findByProductId(
+            String productId);
+
+    void delete(
+            String userId,
+            String productId);
+}
+
+class WatchlistService {
+    private final WatchlistRepository repository;
+
+    public WatchlistService(
+            WatchlistRepository repository) {
+        this.repository = repository;
+    }
+
+    public void add(
+            String userId,
+            String productId) {
+
+        if (repository
+                .findByUserAndProduct(userId, productId)
+                .isPresent()) {
+
+            throw new IllegalStateException(
+                    "Product already in watchlist");
+        }
+
+        WatchlistItem item =
+                new WatchlistItem(
+                        UUID.randomUUID().toString(),
+                        userId,
+                        productId);
+
+        repository.save(item);
+    }
+
+    public void remove(
+            String userId,
+            String productId) {
+
+        repository.delete(userId, productId);
+    }
+}
+
+class ProductService {
+
+    private final ProductRepository productRepository;
+    private final EventPublisher eventPublisher;
+
+    public void updatePrice(
+            String productId,
+            BigDecimal newPrice) {
+
+        Product product =
+                productRepository.findById(productId)
+                        .orElseThrow();
+
+        BigDecimal oldPrice =
+                product.getCurrentPrice();
+
+        product.updatePrice(newPrice);
+
+        productRepository.save(product);
+
+        if (newPrice.compareTo(oldPrice) < 0) {
+
+            eventPublisher.publish(
+                    new PriceChangedEvent(
+                            productId,
+                            oldPrice,
+                            newPrice));
+        }
+    }
+}
+
+class PriceChangedEvent {
+
+    private final String productId;
+    private final BigDecimal oldPrice;
+    private final BigDecimal newPrice;
+
+    public PriceChangedEvent(
+            String productId,
+            BigDecimal oldPrice,
+            BigDecimal newPrice) {
+
+        this.productId = productId;
+        this.oldPrice = oldPrice;
+        this.newPrice = newPrice;
+    }
+
+    public String getProductId() {
+        return productId;
+    }
+
+    public BigDecimal getNewPrice() {
+        return newPrice;
+    }
+}
+
+interface EventPublisher {
+    void publish(Object event);
+}
+
+class PriceAlertService {
+
+       private final WatchlistRepository watchlistRepository;
+       private final NotificationService notificationService;
+
+       public PriceAlertService(
+               WatchlistRepository watchlistRepository,
+               NotificationService notificationService) {
+
+           this.watchlistRepository = watchlistRepository;
+           this.notificationService = notificationService;
+       }
+
+       public void handle(
+               PriceChangedEvent event) {
+
+           List<WatchlistItem> watchers =
+                   watchlistRepository.findByProductId(
+                           event.getProductId());
+
+           for (WatchlistItem watcher : watchers) {
+
+               if (!watcher.isActive()) {
+                   continue;
+               }
+
+               notificationService.notifyPriceDrop(
+                       watcher.getUserId(),
+                       event);
+           }
+       }
+   }
