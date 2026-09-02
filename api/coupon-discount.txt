@@ -1,0 +1,50 @@
+Coupon Platform Design: Design a coupon platform for an e-commerce system (e.g. Amazon). The platform should
+support multiple coupon types (e.g. flat rupee discount, percentage off, and other variants). Expected coverage:
+class design for different coupon types, API design, and a scalable, extensible architecture that allows new coupon
+types to be added with minimal changes to existing code.
+
+
+entities:
+Coupon
+Cart
+CartItem
+User
+
+enum DiscountType
+
+
+coupons
+-------
+id PK
+code UNIQUE
+value
+discount_type
+validity
+
+FLOW
+
+POST /orders/{orderId}/coupon
+        ↓
+CouponService
+        ↓
+Find Coupon
+        ↓
+Validate basic things
+        ↓
+Get DiscountStrategy
+        ↓
+Calculate discount
+        ↓
+Update Order
+
+
+
+How do we track which user used which coupon?
+coupon_usage
+-----------
+coupon_id
+user_id
+order_id
+
+
+

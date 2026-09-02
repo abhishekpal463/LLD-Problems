@@ -1,0 +1,83 @@
+1. A player can submit/update their score.
+2. System maintains player rankings.
+3. User can fetch the leaderboard.
+4. User can fetch their own rank.
+5. Leaderboard should support many players.
+
+
+Core entities
+Player
+Game
+LeaderboardEntry
+
+Game 1 ─────── 1 Leaderboard
+
+Player N ───── N Game
+       \       /
+        \     /
+      LeaderboardEntry
+
+
+
+Schema
+
+players
+-------
+id PK
+name
+
+
+games
+-----
+id PK
+name
+
+leaderboard_entries
+-------------------
+game_id FK
+player_id FK
+score
+updated_at
+
+PRIMARY KEY(game_id, player_id)
+
+
+Update score
+POST /games/{gameId}/players/{playerId}/score
+{
+  "score": 500
+}
+
+Get leaderboard
+GET /games/{gameId}/leaderboard?limit=100&offset=0
+
+Get player's rank
+GET /games/{gameId}/players/{playerId}/rank
+
+
+                         Client
+                           │
+                           ▼
+                 LeaderboardController
+                           │
+                           ▼
+                  LeaderboardService
+                     /           \
+                    /             \
+                   ▼               ▼
+          Player/Game Repo    LeaderboardRepo
+                   │               │
+                   ▼               ▼
+              PostgreSQL          Redis
+
+      Player
+        │
+        │
+        ▼
+LeaderboardEntry
+        ▲
+        │
+        │
+       Game
+
+

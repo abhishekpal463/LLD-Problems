@@ -1,0 +1,147 @@
+Auction Bidding
+
+1. Seller can create an auction for an item at any time.
+2. Bidders can place multiple bids on an active auction.
+3. A bidder becomes the winner when no higher bid is received
+   for 1 hour.
+4. Winner gets 10 minutes to complete payment.
+5. A bidder can participate in only one active auction at a time.
+6. We need to maintain auction and bid state.
+
+User
+Auction
+Bid
+Payment
+
+User
+ ├── creates ──> Auction
+ └── places ───> Bid
+
+Auction
+ └── has many ──> Bids
+
+Auction
+ └── has one ──> Winner
+
+ ACTIVE
+    │
+    │ No higher bid for 1 hour
+    ▼
+ PAYMENT_PENDING
+    │
+    │ Payment successful
+    ▼
+ COMPLETED
+
+users
+-----
+id PK
+name
+email
+
+auctions
+--------
+id PK
+seller_id FK
+item_name
+starting_price
+current_bid
+current_bidder_id FK
+status
+last_bid_at
+payment_deadline
+created_at
+
+
+bids
+----
+id PK
+auction_id FK
+bidder_id FK
+amount
+created_at
+
+payments
+--------
+id PK
+auction_id FK
+bidder_id FK
+amount
+status
+created_at
+
+API
+POST /auctions
+{
+  "itemName": "iPhone 17",
+  "startingPrice": 50000
+}
+{
+  "auctionId": "A123",
+  "status": "ACTIVE"
+}
+
+GET /auctions/{auctionId}
+
+POST /auctions/{auctionId}/bids
+{
+  "amount": 70000
+}
+
+GET /auctions/{auctionId}/bids
+
+POST /auctions/{auctionId}/payment
+
+Is bidder already participating in another auction?
+
+We can simply query:
+
+SELECT 1
+FROM bids b
+JOIN auctions a ON a.id = b.auction_id
+WHERE b.bidder_id = ?
+AND a.status = 'ACTIVE'
+LIMIT 1;
+
+
+                    ┌──────────────┐
+                    │     User     │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │  REST APIs   │
+                    └──────┬───────┘
+                           │
+             ┌─────────────┼─────────────┐
+             ▼             ▼             ▼
+      AuctionController BidController PaymentController
+             │             │             │
+             ▼             ▼             ▼
+      AuctionService   BidService   PaymentService
+             │             │             │
+             └─────────────┼─────────────┘
+                           ▼
+                    ┌──────────────┐
+                    │ Repositories │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │   Database   │
+                    └──────────────┘
+
+                    ┌──────────────┐
+                    │  Scheduler   │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    AuctionService
+
+
+
+
+
+
+
+

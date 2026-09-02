@@ -1,0 +1,211 @@
+1. Customer can browse a restaurant's menu.
+2. Customer can place an order from one restaurant.
+3. Customer can make a payment.
+4. Restaurant can accept/reject the order.
+5. Restaurant prepares the order.
+6. A delivery partner is assigned.
+7. Delivery partner picks up and delivers the order.
+8. Customer can view order status.
+
+
+Customer
+   ↓
+Browse Restaurant/Menu
+   ↓
+Create Order
+   ↓
+Payment
+   ↓
+Restaurant Accepts / Rejects
+   ↓
+Preparing
+   ↓
+Delivery Partner Assigned
+   ↓
+Picked Up
+   ↓
+Delivered
+
+
+Core entities
+Customer
+Restaurant
+MenuItem
+Order
+OrderItem
+Payment
+DeliveryPartner
+
+Restaurant 1 ─── N MenuItem
+
+Customer 1 ───── N Order
+
+Order 1 ───────── N OrderItem
+
+Order 1 ───────── 1 Payment
+
+Order 1 ───────── 1 DeliveryPartner
+
+User
+----
+id
+name
+type
+
+where:
+CUSTOMER
+DELIVERY_PARTNER
+RESTAURANT_USER
+
+users
+-----
+id PK
+name
+type
+
+restaurants
+-----------
+id PK
+name
+address
+
+menu_items
+----------
+id PK
+restaurant_id FK
+name
+price
+available
+
+
+orders
+------
+id PK
+customer_id FK
+restaurant_id FK
+status
+total_amount
+created_at
+
+order_items
+-----------
+id PK
+order_id FK
+menu_item_id FK
+quantity
+price
+
+payments
+--------
+id PK
+order_id FK
+amount
+status
+created_at
+
+delivery_partners
+-----------------
+id PK
+user_id FK
+status
+
+AVAILABLE
+BUSY
+
+CREATED
+   ↓
+PAYMENT_PENDING
+   ↓
+PAID
+   ↓
+RESTAURANT_ACCEPTED
+   ↓
+PREPARING
+   ↓
+READY_FOR_PICKUP
+   ↓
+OUT_FOR_DELIVERY
+   ↓
+DELIVERED
+
+
+
+GET /restaurants/{restaurantId}/menu
+Response:
+
+{
+  "restaurantId": "R1",
+  "items": [
+    {
+      "id": "M1",
+      "name": "Burger",
+      "price": 200,
+      "available": true
+    },
+    {
+      "id": "M2",
+      "name": "Pizza",
+      "price": 400,
+      "available": true
+    }
+  ]
+}
+
+
+Create order
+POST /orders
+{
+  "restaurantId": "R1",
+  "items": [
+    {
+      "menuItemId": "M1",
+      "quantity": 2
+    },
+    {
+      "menuItemId": "M2",
+      "quantity": 1
+    }
+  ]
+}
+
+Response:
+
+{
+  "orderId": "O123",
+  "status": "PAYMENT_PENDING",
+  "totalAmount": 800
+}
+
+
+POST /orders/{orderId}/payment
+{
+  "paymentMethod": "CARD"
+}
+
+Restaurant accepts/rejects
+POST /orders/{orderId}/accept
+
+or
+
+POST /orders/{orderId}/reject
+Start preparing
+POST /orders/{orderId}/prepare
+Mark ready
+POST /orders/{orderId}/ready
+Pickup
+POST /orders/{orderId}/pickup
+Deliver
+POST /orders/{orderId}/deliver
+Customer checks status
+GET /orders/{orderId}
+
+Response:
+
+{
+  "orderId": "O123",
+  "status": "PREPARING",
+  "restaurant": "ABC Restaurant",
+  "totalAmount": 800
+}
+
+

@@ -1,0 +1,94 @@
+1. Building has multiple floors.
+2. Building has multiple elevators.
+3. User can request an elevator from a floor.
+4. User can select a destination floor once inside.
+5. System should select the most appropriate elevator.
+6. Elevator moves between floors and maintains its current state.
+7. Elevator can be IDLE, MOVING or DOOR_OPEN.
+
+
+Minimum Viable Product
+One request can be associated with one elevator.
+
+IDLE
+MOVING
+DOOR_OPEN
+
+
+entities:
+User
+Elevator
+ElevatorRequest
+
+User
+  ↓
+ElevatorRequest
+  ↓
+Elevator
+
+elevators
+---------
+id PK
+current_floor
+direction
+state
+
+direction:
+UP
+DOWN
+NONE
+
+elevator_requests
+-----------------
+id PK
+user_id FK
+elevator_id FK
+
+pickup_floor
+destination_floor
+status
+created_at
+
+
+POST /elevator-requests
+{
+  "pickupFloor": 5
+}
+{
+  "requestId": "R123",
+  "elevatorId": "E2",
+  "status": "ASSIGNED"
+}
+
+POST /elevator-requests/{requestId}/destination
+{
+  "destinationFloor": 10
+}
+
+GET /elevators/{elevatorId}
+{
+  "id": "E2",
+  "currentFloor": 7,
+  "state": "MOVING",
+  "direction": "UP"
+}
+
+User
+ │
+ │ POST /elevator-requests
+ ▼
+ElevatorController
+ │
+ ▼
+ElevatorService
+ │
+ ├── Find best elevator
+ │
+ ├── Assign elevator
+ │
+ └── Create request
+ ▼
+Database
+
+
+

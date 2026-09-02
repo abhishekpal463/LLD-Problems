@@ -1,0 +1,134 @@
+cab booking
+
+1. Rider can request a cab.
+2. Request contains pickup and destination.
+3. System finds an available cab.
+4. Cab gets assigned to the rider.
+5. Trip starts and eventually completes.
+6. Cab becomes available again after the trip
+
+
+Rider
+  ↓
+Request Cab
+  ↓
+Find Available Cab
+  ↓
+Assign Cab
+  ↓
+Trip Starts
+  ↓
+Trip Completes
+  ↓
+Cab Available Again
+
+Entities:
+User
+Cab
+Trip
+
+Cab
+AVAILABLE
+ASSIGNED
+ON_TRIP
+
+Trip
+ASSIGNED
+    ↓
+STARTED
+    ↓
+COMPLETED
+
+
+User
+----
+id
+name
+email
+type        // RIDER / DRIVER
+
+User
+----
+id
+name
+email
+type        // RIDER / DRIVER
+
+cabs
+----
+id PK
+driver_id FK
+registration_number
+status
+latitude
+longitude
+
+
+trips
+-----
+id PK
+rider_id FK -> users.id
+cab_id FK -> cabs.id
+
+pickup_latitude
+pickup_longitude
+
+destination_latitude
+destination_longitude
+
+status
+
+created_at
+started_at
+completed_at
+
+
+POST /trips
+
+GET /trips/{tripId}
+
+POST /trips/{tripId}/start
+
+POST /trips/{tripId}/complete
+
+PATCH /cabs/{cabId}/location
+Driver
+   ↓
+PATCH location
+   ↓
+CabController
+   ↓
+CabService
+   ↓
+UPDATE cabs
+SET latitude = ?,
+    longitude = ?
+
+                         ┌──────────┐
+                         │   User   │
+                         └────┬─────┘
+                              │
+                         REST APIs
+                              │
+              ┌───────────────┼────────────────┐
+              │               │                │
+              ▼               ▼                ▼
+       TripController   CabController     UserController
+              │               │
+              ▼               ▼
+        TripService       CabService
+              │
+       ┌──────┼───────────┐
+       │      │           │
+       ▼      ▼           ▼
+ TripRepo  CabRepo   GoogleMapsClient
+       │      │           │
+       └──────┼───────────┘
+              ▼
+          PostgreSQL
+
+
+
+
+
+
