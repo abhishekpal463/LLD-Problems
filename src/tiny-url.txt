@@ -1,0 +1,70 @@
+Core approach
+Long URL
+   ↓
+Generate unique ID
+   ↓
+Base62 encode
+   ↓
+Short URL
+
+shortCode → original URL
+
+import java.util.HashMap;
+import java.util.Map;
+
+class TinyUrl {
+
+    private static final String BASE_URL = "https://short.ly/";
+
+    private final Map<String, String> urlMap = new HashMap<>();
+    private long nextId = 1;
+
+    public String encode(String longUrl) {
+        String shortCode = base62Encode(nextId++);
+        urlMap.put(shortCode, longUrl);
+
+        return BASE_URL + shortCode;
+    }
+
+    public String decode(String shortUrl) {
+        String shortCode =
+                shortUrl.substring(shortUrl.lastIndexOf("/") + 1);
+
+        return urlMap.get(shortCode);
+    }
+
+    public boolean deleteUrl(String shortUrl) {
+        String shortCode =
+                shortUrl.substring(shortUrl.lastIndexOf("/") + 1);
+
+        return urlMap.remove(shortCode) != null;
+    }
+
+    private String base62Encode(long num) {
+        // this collison free
+        String chars =
+                "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+        StringBuilder sb = new StringBuilder();
+
+        while (num > 0) {
+            sb.append(chars.charAt((int) (num % 62)));
+            num /= 62;
+        }
+
+        return sb.reverse().toString();
+
+        // we can use this also
+        import java.util.*;
+        UUID uuid = UUID.randomUUID();
+
+        // Convert it to a standard 36-character String representation
+        String uuidString = uuid.toString();
+
+        // we can use this also it has 22 length but
+         String sampleURL = "www.google.com";
+          String encodedURL = Base64.getUrlEncoder()
+                                        .encodeToString(sampleURL.getBytes());
+
+    }
+}
