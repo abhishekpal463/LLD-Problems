@@ -1,0 +1,122 @@
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+
+class LFUCache {
+
+    private static class Node {
+        int key;
+        int value;
+        int freq;
+
+        Node(int key, int value) {
+            this.key = key;
+            this.value = value;
+            this.freq = 1;
+        }
+    }
+
+    private final int capacity;
+
+    // key -> node
+    private final Map<Integer, Node> keyToNode;
+
+    // frequency -> keys having that frequency
+    private final Map<Integer, LinkedHashSet<Integer>> freqToKeys;
+
+    // Minimum frequency currently present in cache
+    private int minFreq;
+
+    public LFUCache(int capacity) {
+        this.capacity = capacity;
+        this.keyToNode = new HashMap<>();
+        this.freqToKeys = new HashMap<>();
+        this.minFreq = 0;
+    }
+
+    public int get(int key) {
+        Node node = keyToNode.get(key);
+
+        if (node == null) {
+            return -1;
+        }
+
+        increaseFrequency(node);
+
+        return node.value;
+    }
+
+    public void put(int key, int value) {
+
+        if (capacity == 0) {
+            return;
+        }
+
+        // Key already exists
+        if (keyToNode.containsKey(key)) {
+            Node node = keyToNode.get(key);
+
+            node.value = value;
+            increaseFrequency(node);
+
+            return;
+        }
+
+        // Cache is full
+        if (keyToNode.size() == capacity) {
+            LinkedHashSet<Integer> keys = freqToKeys.get(minFreq);
+
+            // First key = least recently used among min frequency
+            int evictKey = keys.iterator().next();
+
+            keys.remove(evictKey);
+
+            if (keys.isEmpty()) {
+                freqToKeys.remove(minFreq);
+            }
+
+            keyToNode.remove(evictKey);
+        }
+
+        // Add new key with frequency 1
+        Node node = new Node(key, value);
+
+        keyToNode.put(key, node);
+
+        freqToKeys
+                .computeIfAbsent(1, k -> new LinkedHashSet<>())
+                .add(key);
+
+        if (!freqToKeys.containsKey(1)) {
+            freqToKeys.put(1, new LinkedHashSet<>());
+        }
+
+        freqToKeys.get(1).add(node.key);
+
+        minFreq = 1;
+    }
+
+    private void increaseFrequency(Node node) {
+        int oldFreq = node.freq;
+
+        // Remove from old frequency bucket
+        LinkedHashSet<Integer> oldKeys = freqToKeys.get(oldFreq);
+        oldKeys.remove(node.key);
+
+        // If this was the last key in the minimum-frequency bucket
+        if (oldFreq == minFreq && oldKeys.isEmpty()) {
+            minFreq++;
+        }
+
+        // Increase frequency
+        node.freq++;
+
+        // Add to new frequency bucket
+        if (!freqToKeys.containsKey(node.freq)) {
+            freqToKeys.put(node.freq, new LinkedHashSet<>());
+        }
+
+        freqToKeys.get(node.freq).add(node.key);
+    }
+}

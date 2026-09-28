@@ -1,0 +1,292 @@
+````java
+import java.util.*;
+
+class LogStore {
+
+    // service -> timestamp -> messages
+    private final Map<String, TreeMap<Long, List<String>>> logs = new HashMap<>();
+
+    public void addLog(String service, long timestamp, String message) {
+
+        TreeMap<Long, List<String>> serviceLogs =
+                logs.get(service);
+
+        if (serviceLogs == null) {
+            serviceLogs = new TreeMap<>();
+            logs.put(service, serviceLogs);
+        }
+
+        List<String> messages = serviceLogs.get(timestamp);
+
+        if (messages == null) {
+            messages = new ArrayList<>();
+            serviceLogs.put(timestamp, messages);
+        }
+
+        messages.add(message);
+    }
+
+    public List<String> getLogs(
+            String service,
+            long startTime,
+            long endTime) {
+
+        List<String> result = new ArrayList<>();
+
+        TreeMap<Long, List<String>> serviceLogs =
+                logs.get(service);
+
+        if (serviceLogs == null) {
+            return result;
+        }
+
+        // Inclusive range [startTime, endTime]
+        NavigableMap<Long, List<String>> range =
+                serviceLogs.subMap(
+                        startTime,
+                        true,
+                        endTime,
+                        true
+                );
+
+        for (List<String> messages : range.values()) {
+            result.addAll(messages);
+        }
+
+        return result;
+    }
+
+    public List<String> getLatestLogs(
+            String service,
+            int k) {
+
+        List<String> result = new ArrayList<>();
+
+        TreeMap<Long, List<String>> serviceLogs =
+                logs.get(service);
+
+        if (serviceLogs == null) {
+            return result;
+        }
+
+        // Newest timestamp -> oldest timestamp
+        for (List<String> messages :
+                serviceLogs.descendingMap().values()) {
+
+            // Same timestamp: newest inserted message first
+            for (int i = messages.size() - 1; i >= 0; i--) {
+
+                result.add(messages.get(i));
+
+                if (result.size() == k) {
+                    return result;
+                }
+            }
+        }
+
+        return result;
+    }
+}
+
+### Example
+
+```java
+LogStore store = new LogStore();
+
+store.addLog("payment", 100, "Payment started");
+store.addLog("payment", 110, "Payment validated");
+store.addLog("payment", 110, "Payment charged");
+store.addLog("payment", 150, "Payment completed");
+
+System.out.println(
+    store.getLogs("payment", 105, 140)
+);
+````
+
+Output:
+
+```text
+[Payment validated, Payment charged]
+```
+
+And:
+
+```java
+System.out.println(
+    store.getLatestLogs("payment", 2)
+);
+```
+
+Output:
+
+```text
+[Payment completed, Payment charged]
+```
+
+---
+
+## What to say before coding
+
+> “I need logs sorted by timestamp because the main query is a time range. So I'll maintain a TreeMap for each service where the key is timestamp and the value is all messages at that timestamp. TreeMap gives me efficient range queries using `subMap()`.”
+
+That's the key insight.
+
+---
+
+## Why not `HashMap`?
+
+With:
+
+```java
+Map<Long, List<String>>
+```
+
+using a `HashMap`, we can't efficiently answer:
+
+```text
+give me everything between 100 and 200
+```
+
+We'd have to scan every timestamp.
+
+`TreeMap` keeps timestamps sorted:
+
+```text
+100 → [...]
+120 → [...]
+150 → [...]
+200 → [...]
+250 → [...]
+```
+
+Then:
+
+```java
+serviceLogs.subMap(100, true, 200, true);
+```
+
+directly gives the required range.
+
+---
+
+## Complexity
+
+Let:
+
+* `N` = number of distinct timestamps for a service
+* `R` = number of logs returned
+
+| Operation          |    Complexity |
+| ------------------ | ------------: |
+| `addLog()`         |      O(log N) |
+| `getLogs()`        |  O(log N + R) |
+| `getLatestLogs(k)` |  O(log N + K) |
+| Space              | O(total logs) |
+
+---
+
+## Important edge case: same timestamp
+
+This is why we use:
+
+```java
+TreeMap<Long, List<String>>
+```
+
+rather than:
+
+```java
+TreeMap<Long, String>
+```
+
+Because:
+
+```text
+110 → "Payment validated"
+110 → "Payment charged"
+```
+
+should both be stored.
+
+So:
+
+```text
+110 → ["Payment validated", "Payment charged"]
+```
+
+---
+
+## One interview detail: time range inclusive or exclusive?
+
+I would explicitly say:
+
+> “I'm assuming the range is inclusive: `[startTime, endTime]`.”
+
+That's why we use:
+
+```java
+subMap(startTime, true, endTime, true)
+```
+
+If they want `[startTime, endTime)`, use:
+
+```java
+subMap(startTime, true, endTime, false)
+```
+
+---
+
+## Follow-up: `getLatestLogs(service, k)`
+
+This is nicely handled by:
+
+```java
+serviceLogs.descendingMap()
+```
+
+which gives:
+
+```text
+150 → [...]
+110 → [...]
+100 → [...]
+```
+
+Then we take messages until we have `k`.
+
+---
+
+## One possible improvement
+
+If the interviewer asks:
+
+> “What if timestamps are unique per log?”
+
+Then we can simplify to:
+
+```java
+Map<String, TreeMap<Long, String>>
+```
+
+But I would **not assume that** unless the prompt says timestamps are unique. The `List` version is safer.
+
+### The pattern to remember
+
+```text
+HashMap
+   ↓
+service
+   ↓
+TreeMap
+   ↓
+timestamp → messages
+```
+
+And the two useful `TreeMap` APIs are:
+
+```java
+subMap()          // time-range query
+descendingMap()   // latest logs
+```
+
+This is a very clean **DSA + LLD** solution for a 30-minute coding round.

@@ -1,0 +1,338 @@
+````java
+import java.util.*;
+
+class ConsistentHashing {
+
+    // Hash position -> server
+    private final TreeMap<Long, String> ring = new TreeMap<>();
+
+    public void addServer(String server) {
+        long hash = hash(server);
+        ring.put(hash, server);
+    }
+
+    public String getServer(String key) {
+        if (ring.isEmpty()) {
+            return null;
+        }
+
+        long hash = hash(key);
+
+        // Find the first server clockwise from this key
+        Map.Entry<Long, String> entry = ring.ceilingEntry(hash);
+
+        // Wrap around to the first server
+        if (entry == null) {
+            entry = ring.firstEntry();
+        }
+
+        return entry.getValue();
+    }
+
+    public void removeServer(String server) {
+        ring.remove(hash(server));
+    }
+
+    private long hash(String value) {
+        // Convert Java hashCode to a non-negative long
+        return Integer.toUnsignedLong(value.hashCode());
+    }
+}
+
+### Example
+
+```java
+ConsistentHashing ring = new ConsistentHashing();
+
+ring.addServer("Server-A");
+ring.addServer("Server-B");
+ring.addServer("Server-C");
+
+System.out.println(ring.getServer("user-101"));
+System.out.println(ring.getServer("user-102"));
+System.out.println(ring.getServer("user-103"));
+````
+
+The exact server depends on the hash positions.
+
+---
+
+# How to explain it
+
+I'd say:
+
+> "I'll map every server to a position on a hash ring. I'll store those positions in a TreeMap so they're sorted. For a key, I'll hash it and find the first server whose hash is greater than or equal to the key's hash. If no such server exists, I'll wrap around to the first server."
+
+That's the core idea.
+
+---
+
+## Why `TreeMap`?
+
+This is the main Java insight.
+
+We need:
+
+```java
+ring.ceilingEntry(hash)
+```
+
+which means:
+
+> Give me the smallest server hash that is greater than or equal to this key's hash.
+
+For example:
+
+```text
+10 → A
+30 → B
+70 → C
+
+key = 25
+
+ceilingEntry(25)
+       ↓
+30 → B
+```
+
+If:
+
+```text
+key = 80
+```
+
+then:
+
+```java
+ceilingEntry(80) == null
+```
+
+so:
+
+```java
+ring.firstEntry()
+```
+
+gives `A`.
+
+---
+
+# Complexity
+
+With `N` servers:
+
+| Operation        | Complexity |
+| ---------------- | ---------: |
+| `addServer()`    |   O(log N) |
+| `removeServer()` |   O(log N) |
+| `getServer()`    |   O(log N) |
+| Space            |       O(N) |
+
+---
+
+# Important limitation: Virtual Nodes
+
+A good interviewer will very likely ask:
+
+> "What's wrong with putting one position per server?"
+
+The problem is **uneven distribution**.
+
+Imagine:
+
+```text
+0 -------- 25 -------- 50 -------- 75 -------- 100
+
+A                                  B         C
+```
+
+Server A might own a huge portion of the ring while C owns very little.
+
+### Solution: Virtual Nodes
+
+Instead of:
+
+```text
+Server A → 1 position
+```
+
+we create:
+
+```text
+Server A → A#0
+Server A → A#1
+Server A → A#2
+...
+Server A → A#99
+```
+
+Same for every server.
+
+Then the ring has many points:
+
+```text
+A A C B A C A B B A C ...
+```
+
+This gives a much more balanced distribution.
+
+### Java version with virtual nodes
+
+This is actually the version I'd pitch if they ask for an improvement:
+
+```java
+import java.util.*;
+
+class ConsistentHashing {
+
+    private static final int VIRTUAL_NODES = 100;
+
+    // hash position -> server
+    private final TreeMap<Long, String> ring = new TreeMap<>();
+
+    public void addServer(String server) {
+
+        for (int i = 0; i < VIRTUAL_NODES; i++) {
+            String virtualNode = server + "#" + i;
+            ring.put(hash(virtualNode), server);
+        }
+    }
+
+    public void removeServer(String server) {
+
+        for (int i = 0; i < VIRTUAL_NODES; i++) {
+            String virtualNode = server + "#" + i;
+            ring.remove(hash(virtualNode));
+        }
+    }
+
+    public String getServer(String key) {
+
+        if (ring.isEmpty()) {
+            return null;
+        }
+
+        long hash = hash(key);
+
+        Map.Entry<Long, String> entry =
+                ring.ceilingEntry(hash);
+
+        if (entry == null) {
+            entry = ring.firstEntry();
+        }
+
+        return entry.getValue();
+    }
+
+    private long hash(String value) {
+        return Integer.toUnsignedLong(value.hashCode());
+    }
+}
+```
+
+Now adding a server costs:
+
+```text
+O(V log N)
+```
+
+where `V` is the number of virtual nodes.
+
+---
+
+# Why is this better than normal hashing?
+
+Suppose:
+
+```text
+Servers = A, B, C
+```
+
+With simple:
+
+```text
+hash(key) % 3
+```
+
+adding server D changes:
+
+```text
+hash(key) % 3
+        ↓
+hash(key) % 4
+```
+
+and potentially **almost every key moves**.
+
+With consistent hashing:
+
+```text
+Ring
+────────────────────────
+A      B       C
+
+Add D
+────────────────────────
+A   D  B       C
+```
+
+Only keys in D's newly owned range need to move.
+
+That's the primary benefit.
+
+---
+
+# Collision question
+
+Just like your TinyURL question, you should be aware that:
+
+> **The hash function itself isn't collision-free.**
+
+Two different strings could theoretically produce the same hash position.
+
+For a basic interview implementation, you can state:
+
+> "I'm using the hash only to determine positions. In production I'd use a stronger 64-bit hash and explicitly handle hash-position collisions."
+
+Also, with virtual nodes, you have many more positions, so collision handling becomes relevant.
+
+---
+
+# What I'd actually code in the interview
+
+Start with:
+
+```java
+TreeMap<Long, String> ring;
+```
+
+and these three methods:
+
+```java
+addServer()
+getServer()
+removeServer()
+```
+
+Then explain:
+
+```text
+Key
+ ↓
+Hash
+ ↓
+ceilingEntry()
+ ↓
+Server
+```
+
+Only after that, bring up:
+
+```text
+virtual nodes
+better hash function
+collision handling
+replication
+```
+
+That keeps the implementation **simple enough for 30 minutes**, while still giving you good HLD follow-ups.

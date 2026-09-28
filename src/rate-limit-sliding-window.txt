@@ -1,0 +1,94 @@
+import java.util.*;
+
+class RateLimiter {
+
+    private static class UserConfig {
+        int maxRequests;
+        long windowSeconds;
+
+        UserConfig(int maxRequests, long windowSeconds) {
+            this.maxRequests = maxRequests;
+            this.windowSeconds = windowSeconds;
+        }
+    }
+
+    // userId -> request timestamps
+    private final Map<String, Deque<Long>> requests = new HashMap<>();
+
+    // userId -> rate limit configuration
+    private final Map<String, UserConfig> configs = new HashMap<>();
+
+    public RateLimiter(int defaultMaxRequests, long defaultWindowSeconds) {
+        // Optional: configure a default limit for every user.
+        // Could also keep these as class-level defaults.
+    }
+
+    public boolean allowRequest(String userId, long timestamp) {
+
+        UserConfig config = configs.get(userId);
+
+        // Example default: 5 requests / 60 seconds
+        if (config == null) {
+            config = new UserConfig(5, 60);
+        }
+
+        Deque<Long> queue = requests.computeIfAbsent(
+                userId,
+                k -> new ArrayDeque<>()
+        );
+
+        removeExpired(queue, timestamp, config.windowSeconds);
+
+        if (queue.size() >= config.maxRequests) {
+            return false;
+        }
+
+        queue.addLast(timestamp);
+
+        return true;
+    }
+
+    public void configureLimit(
+            String userId,
+            int maxRequests,
+            long windowSeconds) {
+
+        configs.put(
+                userId,
+                new UserConfig(maxRequests, windowSeconds)
+        );
+    }
+
+    public int remainingRequests(String userId, long timestamp) {
+
+        UserConfig config = configs.get(userId);
+
+        if (config == null) {
+            config = new UserConfig(5, 60);
+        }
+
+        Deque<Long> queue = requests.get(userId);
+
+        if (queue == null) {
+            return config.maxRequests;
+        }
+
+        removeExpired(queue, timestamp, config.windowSeconds);
+
+        return Math.max(0, config.maxRequests - queue.size());
+    }
+
+    private void removeExpired(
+            Deque<Long> queue,
+            long timestamp,
+            long windowSeconds) {
+
+        long windowStart = timestamp - windowSeconds;
+
+        while (!queue.isEmpty()
+                && queue.peekFirst() <= windowStart) {
+
+            queue.pollFirst();
+        }
+    }
+}

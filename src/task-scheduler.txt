@@ -1,0 +1,334 @@
+````java
+import java.util.*;
+
+class TaskScheduler {
+
+    private static class Task {
+        String taskId;
+        long executeAt;
+
+        Task(String taskId, long executeAt) {
+            this.taskId = taskId;
+            this.executeAt = executeAt;
+        }
+    }
+
+    // Tasks ordered by executeAt, then taskId
+    private final TreeSet<Task> tasks = new TreeSet<>(
+        (a, b) -> {
+            if (a.executeAt != b.executeAt) {
+                return Long.compare(a.executeAt, b.executeAt);
+            }
+
+            return a.taskId.compareTo(b.taskId);
+        }
+    );
+
+    // taskId -> Task
+    private final Map<String, Task> taskMap = new HashMap<>();
+
+    public void schedule(String taskId, long executeAt) {
+
+        // If task already exists, replace it
+        if (taskMap.containsKey(taskId)) {
+            Task oldTask = taskMap.get(taskId);
+            tasks.remove(oldTask);
+        }
+
+        Task task = new Task(taskId, executeAt);
+
+        taskMap.put(taskId, task);
+        tasks.add(task);
+    }
+
+    public String getNextTask(long currentTime) {
+
+        if (tasks.isEmpty()) {
+            return null;
+        }
+
+        Task next = tasks.first();
+
+        // Task is not due yet
+        if (next.executeAt > currentTime) {
+            return null;
+        }
+
+        tasks.remove(next);
+        taskMap.remove(next.taskId);
+
+        return next.taskId;
+    }
+
+    public void cancel(String taskId) {
+
+        Task task = taskMap.get(taskId);
+
+        if (task == null) {
+            return;
+        }
+
+        tasks.remove(task);
+        taskMap.remove(taskId);
+    }
+
+    public List<String> getPendingTasks() {
+
+        List<String> result = new ArrayList<>();
+
+        for (Task task : tasks) {
+            result.add(task.taskId);
+        }
+
+        return result;
+    }
+}
+
+### Example
+
+```java
+TaskScheduler scheduler = new TaskScheduler();
+
+scheduler.schedule("task1", 100);
+scheduler.schedule("task2", 50);
+scheduler.schedule("task3", 80);
+
+System.out.println(
+    scheduler.getNextTask(60)
+);
+// task2
+
+System.out.println(
+    scheduler.getNextTask(60)
+);
+// null
+
+scheduler.schedule("task4", 70);
+
+System.out.println(
+    scheduler.getPendingTasks()
+);
+// [task4, task3, task1]
+
+scheduler.cancel("task3");
+
+System.out.println(
+    scheduler.getPendingTasks()
+);
+// [task4, task1]
+````
+
+---
+
+## What to say before coding
+
+> “I need to repeatedly find the task with the smallest execution timestamp, so I'll maintain all tasks in a TreeSet ordered by `executeAt`. Since cancellation is by `taskId`, I'll also maintain a HashMap from taskId to Task. This gives me efficient scheduling, cancellation, and retrieval of the earliest task.”
+
+That's a very solid explanation for the interview.
+
+### Why not just `PriorityQueue`?
+
+A `PriorityQueue` is great for:
+
+```text
+get earliest task
+```
+
+but cancellation by arbitrary `taskId` is not efficient.
+
+With:
+
+```java
+tasks.remove(task);
+```
+
+on a normal `PriorityQueue`, arbitrary removal is **O(N)**.
+
+`TreeSet` gives:
+
+```text
+first()      → O(1)
+add()        → O(log N)
+remove()     → O(log N)
+```
+
+So it fits all the requirements better.
+
+---
+
+## Important detail: same timestamp
+
+Suppose:
+
+```text
+task1 → 100
+task2 → 100
+```
+
+If our comparator only compares `executeAt`:
+
+```java
+Long.compare(a.executeAt, b.executeAt)
+```
+
+then `TreeSet` may consider `task1` and `task2` equal and discard one.
+
+That's why we do:
+
+```java
+if (a.executeAt != b.executeAt) {
+    return Long.compare(a.executeAt, b.executeAt);
+}
+
+return a.taskId.compareTo(b.taskId);
+```
+
+So the ordering is:
+
+```text
+executeAt
+    ↓
+taskId (tie breaker)
+```
+
+---
+
+## Complexity
+
+| Operation           | Complexity |
+| ------------------- | ---------: |
+| `schedule()`        |   O(log N) |
+| `getNextTask()`     |   O(log N) |
+| `cancel()`          |   O(log N) |
+| `getPendingTasks()` |       O(N) |
+| Space               |       O(N) |
+
+`getNextTask()` is technically `first()` O(1) + remove O(log N), so overall O(log N).
+
+---
+
+## One subtle requirement
+
+The prompt says:
+
+> execute tasks **at or after** their scheduled timestamp.
+
+So:
+
+```java
+if (next.executeAt <= currentTime)
+```
+
+means it is ready.
+
+For example:
+
+```text
+executeAt = 100
+currentTime = 100
+```
+
+→ execute it.
+
+But:
+
+```text
+executeAt = 101
+currentTime = 100
+```
+
+→ don't execute yet.
+
+---
+
+## Follow-up they may ask: cancel
+
+Our cancellation is:
+
+```java
+Task task = taskMap.get(taskId);
+
+if (task != null) {
+    tasks.remove(task);
+    taskMap.remove(taskId);
+}
+```
+
+The important reason for having **both data structures** becomes very clear here:
+
+```text
+HashMap → find task immediately
+TreeSet → remove it while maintaining sorted order
+```
+
+---
+
+## Follow-up: what if `schedule()` is called twice?
+
+For example:
+
+```java
+schedule("task1", 100);
+schedule("task1", 200);
+```
+
+Our implementation treats the second call as an **update**:
+
+```text
+task1 → 100
+        ↓
+task1 → 200
+```
+
+The old task is removed first.
+
+I'd explicitly mention this assumption:
+
+> “I'm assuming `taskId` is unique, so scheduling the same ID again updates its execution time.”
+
+---
+
+## HLD follow-up
+
+If they ask:
+
+> “How would you build a real scheduler?”
+
+Then the natural evolution is:
+
+```text
+API
+ ↓
+Persistent DB
+ ↓
+Scheduler workers
+ ↓
+Queue / Kafka
+ ↓
+Task execution
+```
+
+For many scheduled tasks, a database table such as:
+
+```text
+task_id
+execute_at
+status
+payload
+```
+
+can be indexed on:
+
+```text
+execute_at
+```
+
+Workers can periodically claim due tasks and put them onto a queue.
+
+For the **30-minute coding round**, though, I'd stick with:
+
+```text
+TreeSet + HashMap
+```
+
+It's simple, handles cancellation cleanly, and demonstrates the right data-structure thinking.

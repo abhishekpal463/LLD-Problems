@@ -1,0 +1,322 @@
+````java
+import java.util.*;
+
+class PubSub {
+
+    // topic -> subscribers
+    private final Map<String, Set<String>> topicSubscribers = new HashMap<>();
+
+    // subscriberId -> pending messages
+    private final Map<String, Queue<String>> subscriberMessages = new HashMap<>();
+
+    public void subscribe(String topic, String subscriberId) {
+
+        topicSubscribers
+                .computeIfAbsent(topic, k -> new HashSet<>())
+                .add(subscriberId);
+
+        // Create message queue for the subscriber
+        subscriberMessages
+                .computeIfAbsent(subscriberId, k -> new LinkedList<>());
+    }
+
+    public void unsubscribe(String topic, String subscriberId) {
+
+        Set<String> subscribers = topicSubscribers.get(topic);
+
+        if (subscribers == null) {
+            return;
+        }
+
+        subscribers.remove(subscriberId);
+
+        if (subscribers.isEmpty()) {
+            topicSubscribers.remove(topic);
+        }
+    }
+
+    public void publish(String topic, String message) {
+
+        Set<String> subscribers = topicSubscribers.get(topic);
+
+        if (subscribers == null) {
+            return;
+        }
+
+        for (String subscriberId : subscribers) {
+
+            Queue<String> messages =
+                    subscriberMessages.computeIfAbsent(
+                            subscriberId,
+                            k -> new LinkedList<>()
+                    );
+
+            messages.offer(message);
+        }
+    }
+
+    public List<String> getMessages(String subscriberId) {
+
+        Queue<String> messages = subscriberMessages.get(subscriberId);
+
+        if (messages == null) {
+            return new ArrayList<>();
+        }
+
+        List<String> result = new ArrayList<>();
+
+        while (!messages.isEmpty()) {
+            result.add(messages.poll());
+        }
+
+        return result;
+    }
+}
+
+### Example
+
+```java
+PubSub pubSub = new PubSub();
+
+pubSub.subscribe("sports", "user1");
+pubSub.subscribe("sports", "user2");
+pubSub.subscribe("tech", "user1");
+
+pubSub.publish("sports", "India won!");
+pubSub.publish("tech", "Java 25 released");
+
+System.out.println(pubSub.getMessages("user1"));
+````
+
+Result:
+
+```text
+[India won!, Java 25 released]
+```
+
+For `user2`:
+
+```java
+System.out.println(pubSub.getMessages("user2"));
+```
+
+Result:
+
+```text
+[India won!]
+```
+
+---
+
+## One important assumption
+
+I'm treating:
+
+```java
+getMessages(subscriberId)
+```
+
+as **consume-and-clear**.
+
+So after:
+
+```java
+getMessages("user1");
+```
+
+those messages are removed from the pending queue.
+
+If the interviewer says:
+
+> "No, I want to read messages without deleting them"
+
+then simply return:
+
+```java
+new ArrayList<>(messages);
+```
+
+instead of polling them.
+
+---
+
+## What to say before coding
+
+> “I'll maintain a set of subscribers for each topic and a queue of pending messages for each subscriber. On publish, I'll iterate through the topic's subscribers and append the message to each subscriber's queue.”
+
+That's enough for the core solution.
+
+---
+
+## Why `Set` for subscribers?
+
+Because the same subscriber may call:
+
+```java
+subscribe("sports", "user1");
+subscribe("sports", "user1");
+```
+
+We don't want:
+
+```text
+user1
+user1
+```
+
+in the subscriber list.
+
+So:
+
+```java
+Set<String>
+```
+
+naturally gives us uniqueness.
+
+---
+
+## Why `Queue` for messages?
+
+Messages should normally be delivered in:
+
+```text
+FIFO
+```
+
+order.
+
+For example:
+
+```text
+publish("sports", "A");
+publish("sports", "B");
+publish("sports", "C");
+```
+
+The subscriber should receive:
+
+```text
+A → B → C
+```
+
+So:
+
+```java
+Queue<String>
+```
+
+is natural.
+
+---
+
+## Complexity
+
+Let `S` = number of subscribers to a topic.
+
+| Operation       |                                Complexity |
+| --------------- | ----------------------------------------: |
+| `subscribe()`   |                              O(1) average |
+| `unsubscribe()` |                              O(1) average |
+| `publish()`     |                                      O(S) |
+| `getMessages()` |                                      O(M) |
+| Space           | O(total pending messages + subscriptions) |
+
+`getMessages()` is O(M) because we're returning M messages anyway.
+
+---
+
+# Follow-up they may ask: "What if a subscriber subscribes to multiple topics?"
+
+Already handled.
+
+```text
+user1
+ ├── sports
+ ├── tech
+ └── finance
+```
+
+Each `publish()` puts the message into the same:
+
+```text
+subscriberMessages["user1"]
+```
+
+queue.
+
+---
+
+# Follow-up: Avoid `computeIfAbsent`
+
+Since you've been preferring simpler interview syntax, you can write:
+
+```java
+Set<String> subscribers = topicSubscribers.get(topic);
+
+if (subscribers == null) {
+    subscribers = new HashSet<>();
+    topicSubscribers.put(topic, subscribers);
+}
+
+subscribers.add(subscriberId);
+```
+
+Similarly:
+
+```java
+Queue<String> messages = subscriberMessages.get(subscriberId);
+
+if (messages == null) {
+    messages = new LinkedList<>();
+    subscriberMessages.put(subscriberId, messages);
+}
+
+messages.offer(message);
+```
+
+For a live pair-programming round, I actually prefer this version because it's more explicit.
+
+---
+
+# Very likely HLD follow-up
+
+The interviewer may ask:
+
+> **"What happens if there are 1 million subscribers?"**
+
+Our:
+
+```java
+publish()
+```
+
+does:
+
+```text
+topic
+ ↓
+1,000,000 subscribers
+ ↓
+1,000,000 queue writes
+```
+
+So publishing is O(S) and can become expensive.
+
+A production architecture might be:
+
+```text
+Producer
+   ↓
+Kafka / PubSub broker
+   ↓
+Consumer groups / subscribers
+```
+
+Then the publisher doesn't synchronously push the message into every subscriber's queue.
+
+You can say:
+
+> “For this in-memory exercise I'll keep fan-out synchronous. At scale I'd move message delivery to a broker such as Kafka and make consumers process messages asynchronously.”
+
+That's a strong HLD extension without complicating the coding solution.
