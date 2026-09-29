@@ -1,0 +1,223 @@
+````java
+import java.util.ArrayList;
+import java.util.List;
+
+class MinHeap {
+
+    private final List<Integer> heap = new ArrayList<>();
+
+    // Get minimum element
+    public int get() {
+        if (heap.isEmpty()) {
+            throw new IllegalStateException("Heap is empty");
+        }
+
+        return heap.get(0);
+    }
+
+    // Insert element
+    public void put(int value) {
+        heap.add(value);
+
+        // Move element up
+        heapifyUp(heap.size() - 1);
+    }
+
+    // Remove minimum element
+    public int remove() {
+        if (heap.isEmpty()) {
+            throw new IllegalStateException("Heap is empty");
+        }
+
+        int min = heap.get(0);
+
+        // Move last element to root
+        int last = heap.remove(heap.size() - 1);
+
+        if (!heap.isEmpty()) {
+            heap.set(0, last);
+
+            // Move root down
+            heapifyDown(0);
+        }
+
+        return min;
+    }
+
+    private void heapifyUp(int index) {
+
+        while (index > 0) {
+
+            int parent = (index - 1) / 2;
+
+            if (heap.get(parent) <= heap.get(index)) {
+                break;
+            }
+
+            swap(parent, index);
+
+            index = parent;
+        }
+    }
+
+    private void heapifyDown(int index) {
+
+        while (true) {
+
+            int left = 2 * index + 1;
+            int right = 2 * index + 2;
+
+            int smallest = index;
+
+            if (left < heap.size()
+                    && heap.get(left) < heap.get(smallest)) {
+                smallest = left;
+            }
+
+            if (right < heap.size()
+                    && heap.get(right) < heap.get(smallest)) {
+                smallest = right;
+            }
+
+            // Already satisfies heap property
+            if (smallest == index) {
+                break;
+            }
+
+            swap(index, smallest);
+
+            index = smallest;
+        }
+    }
+
+    private void swap(int i, int j) {
+        int temp = heap.get(i);
+
+        heap.set(i, heap.get(j));
+        heap.set(j, temp);
+    }
+
+    public int size() {
+        return heap.size();
+    }
+
+    public boolean isEmpty() {
+        return heap.isEmpty();
+    }
+}
+
+## Example
+
+```java
+MinHeap heap = new MinHeap();
+
+heap.put(10);
+heap.put(5);
+heap.put(20);
+heap.put(2);
+heap.put(8);
+
+System.out.println(heap.get());
+// 2
+
+System.out.println(heap.remove());
+// 2
+
+System.out.println(heap.remove());
+// 5
+
+System.out.println(heap.get());
+// 8
+````
+
+### What happens in `put()`?
+
+Suppose:
+
+```text
+[2, 5, 10, 20]
+```
+
+Insert `3`:
+
+```text
+[2, 5, 10, 20, 3]
+```
+
+`3` is smaller than its parent `5`, so swap:
+
+```text
+[2, 3, 10, 20, 5]
+```
+
+Now `3` is greater than parent `2`, so we're done.
+
+This is **heapify up**.
+
+---
+
+### What happens in `remove()`?
+
+Suppose:
+
+```text
+[2, 3, 10, 20, 5]
+```
+
+Remove minimum `2`.
+
+Take the last element `5` and put it at root:
+
+```text
+[5, 3, 10, 20]
+```
+
+Now `5 > 3`, so swap:
+
+```text
+[3, 5, 10, 20]
+```
+
+This is **heapify down**.
+
+---
+
+## Complexity
+
+| Operation  | Complexity |
+| ---------- | ---------: |
+| `get()`    |       O(1) |
+| `put()`    |   O(log N) |
+| `remove()` |   O(log N) |
+| `size()`   |       O(1) |
+| Space      |       O(N) |
+
+### What to say in the interview
+
+> “I'll represent the heap using an array. The minimum is at index 0. On insertion, I append the value and heapify up. On removal, I replace the root with the last element and heapify down.”
+
+That is usually all the interviewer needs before you start coding.
+
+### One important follow-up
+
+They may ask:
+
+> **Why not use `PriorityQueue` in Java?**
+
+Java already has:
+
+```java
+PriorityQueue<Integer> heap = new PriorityQueue<>();
+```
+
+with:
+
+```java
+add()   → O(log N)
+peek()  → O(1)
+poll()  → O(log N)
+```
+
+But since the question is **“Design MinHeap”**, implementing it manually demonstrates that you understand `heapifyUp` and `heapifyDown`.
+
+Also remember: **`remove()` here means remove-min**, not arbitrary removal. If they ask for arbitrary `remove(value)`, that's a different problem and usually costs O(N) unless you maintain an index map.
